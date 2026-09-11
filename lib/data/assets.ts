@@ -67,3 +67,75 @@ export async function listReferenceImages(projectId: string): Promise<ProjectAss
   if (error) throw new Error(`Could not load reference images: ${error.message}`);
   return data ?? [];
 }
+
+/**
+ * Grace period before an unreferenced storage object is considered abandoned.
+ *
+ * An upload that has landed but whose confirmUploadAction is still in flight is
+ * momentarily indistinguishable from an orphan. An hour is far longer than that
+ * window and short enough that nothing lingers.
+ */
+const ORPHAN_GRACE_MS = 60 * 60 * 1000;
+
+/**
+ * Deletes reference-image objects under this project that no asset row points at.
+ *
+ * WHY THESE EXIST
+ * ---------------
+ * Uploads go browser -> Storage directly, then the browser asks the server to
+ * record what landed. Two things can break that second step:
+ *
+ *   1. the customer closes the tab (or loses connection) between the upload
+ *      completing and confirmUploadAction running;
+ *   2. a DRAFT project is deleted — project_assets rows cascade away, but
+ *      storage.objects has no foreign key into public.projects, so the bytes
+ *      stay behind.
+ *
+ * Case (1) is repaired here, at the natural moment: the next time the customer
+ * opens the draft. No scheduler, no background worker, no new infrastructure.
+ * Case (2) leaves nothing to reconcile against and is handled by the periodic
+ * sweep documented in docs/architecture.md §7.
+ *
+ * Safety: this runs as the signed-in customer, so storage RLS confines it to
+ * their own folder. It cannot touch another customer's media even if the
+ * arguments were wrong. Objects inside the grace window are always left alone.
+ */
+export async function reconcileOrphanedReferenceImages(
+  userId: string,
+  projectId: string,
+): Promise<number> {
+  const supabase = await createClient();
+  const prefix = `${userId}/${projectId}`;
+
+  const { data: objects, error } = await supabase.storage
+    .from(REFERENCE_IMAGES_BUCKET)
+    .list(prefix, { limit: 100 });
+
+  if (error || !objects || objects.length === 0) return 0;
+
+  const { data: rows } = await supabase
+    .from('project_assets')
+    .select('storage_path')
+    .eq('project_id', projectId)
+    .eq('user_id', userId);
+
+  const tracked = new Set((rows ?? []).map((row) => row.storage_path));
+  const cutoff = Date.now() - ORPHAN_GRACE_MS;
+
+  const orphans = objects
+    .filter((object) => {
+      if (tracked.has(`${prefix}/${object.name}`)) return false;
+      const createdAt = object.created_at ? Date.parse(object.created_at) : Number.NaN;
+      // Unknown age is treated as too recent to touch: never delete on a guess.
+      return Number.isFinite(createdAt) && createdAt < cutoff;
+    })
+    .map((object) => `${prefix}/${object.name}`);
+
+  if (orphans.length === 0) return 0;
+
+  const { error: removeError } = await supabase.storage
+    .from(REFERENCE_IMAGES_BUCKET)
+    .remove(orphans);
+
+  return removeError ? 0 : orphans.length;
+}

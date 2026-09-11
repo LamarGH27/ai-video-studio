@@ -1,5 +1,16 @@
 -- =============================================================================
--- AI Video Studio — Row Level Security verification
+-- AI Video Studio — Row Level Security verification (live project, by hand)
+-- =============================================================================
+-- This is the paste-into-the-SQL-Editor version, for checking a LIVE Supabase
+-- project. The automated equivalents, which you should normally prefer:
+--
+--   npm run verify:db     supabase/tests/ — the full 129-assertion matrix against
+--                         a clean throwaway PostgreSQL cluster, including the
+--                         storage policies and the status-transition guard.
+--   npm run verify:live   scripts/verify-live.ts — Supabase Auth, the PostgREST
+--                         HTTP API and the Storage API against a real project.
+--
+-- Keep this file in step with those when policies change.
 -- =============================================================================
 -- Runnable assertions for the security properties the product depends on.
 -- Run in the Supabase SQL Editor (or psql as `postgres`) AFTER applying every

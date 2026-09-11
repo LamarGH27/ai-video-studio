@@ -66,6 +66,7 @@ create type public.experience_category as enum (
 create or replace function public.set_updated_at()
 returns trigger
 language plpgsql
+set search_path = ''
 as $$
 begin
   new.updated_at = now();
@@ -79,12 +80,37 @@ create or replace function public.request_jwt_role()
 returns text
 language sql
 stable
+set search_path = ''
 as $$
   select coalesce(
     nullif(current_setting('request.jwt.claim.role', true), ''),
     nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role'
   );
 $$;
+
+-- -----------------------------------------------------------------------------
+-- profiles
+-- -----------------------------------------------------------------------------
+
+create table public.profiles (
+  id uuid primary key references auth.users (id) on delete cascade,
+  display_name text check (display_name is null or char_length(display_name) between 1 and 120),
+  role public.user_role not null default 'customer',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+comment on table public.profiles is
+  'Application profile for an auth.users row. `role` is privilege data and is immutable to the account owner (see enforce_profile_role_immutable).';
+
+create index profiles_role_idx on public.profiles (role);
+
+-- -----------------------------------------------------------------------------
+-- Privilege helpers
+-- -----------------------------------------------------------------------------
+-- Defined here, AFTER public.profiles: both are `language sql`, whose body is
+-- parsed and validated at CREATE time, so neither can be declared before the
+-- table it reads.
 
 -- SECURITY DEFINER so it can read public.profiles without tripping the RLS
 -- policies that are themselves defined in terms of this function.
@@ -120,23 +146,6 @@ $$;
 
 revoke execute on function public.current_profile_role() from public;
 grant execute on function public.current_profile_role() to authenticated, service_role;
-
--- -----------------------------------------------------------------------------
--- profiles
--- -----------------------------------------------------------------------------
-
-create table public.profiles (
-  id uuid primary key references auth.users (id) on delete cascade,
-  display_name text check (display_name is null or char_length(display_name) between 1 and 120),
-  role public.user_role not null default 'customer',
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
-comment on table public.profiles is
-  'Application profile for an auth.users row. `role` is privilege data and is immutable to the account owner (see enforce_profile_role_immutable).';
-
-create index profiles_role_idx on public.profiles (role);
 
 create trigger profiles_set_updated_at
   before update on public.profiles
@@ -226,6 +235,7 @@ create or replace function public.generate_project_reference()
 returns text
 language sql
 volatile
+set search_path = ''
 as $$
   select 'AVS-' || lpad(nextval('public.project_reference_seq')::text, 6, '0');
 $$;
@@ -279,6 +289,7 @@ create trigger projects_set_updated_at
 create or replace function public.enforce_project_owner_immutable()
 returns trigger
 language plpgsql
+set search_path = ''
 as $$
 begin
   if new.user_id is distinct from old.user_id then

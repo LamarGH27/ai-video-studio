@@ -5,7 +5,7 @@ import { requireSupabaseEnv } from '@/lib/env';
 import type { Database } from '@/types/database';
 
 /**
- * Sessionless anon client for public marketing reads (portfolio, experience
+ * Sessionless publishable-key client for public marketing reads (portfolio, experience
  * catalogue).
  *
  * It deliberately does not touch cookies, so pages using it can still be
@@ -14,8 +14,8 @@ import type { Database } from '@/types/database';
  * portfolio items and active experiences, nothing else.
  */
 export function createPublicClient() {
-  const { url, anonKey } = requireSupabaseEnv();
-  return createSupabaseClient<Database>(url, anonKey, {
+  const { url, publishableKey } = requireSupabaseEnv();
+  return createSupabaseClient<Database>(url, publishableKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }

@@ -13,10 +13,10 @@ import type { Database } from '@/types/database';
  * Never cache the returned client across requests — it is bound to one cookie jar.
  */
 export async function createClient() {
-  const { url, anonKey } = requireSupabaseEnv();
+  const { url, publishableKey } = requireSupabaseEnv();
   const cookieStore = await cookies();
 
-  return createServerClient<Database>(url, anonKey, {
+  return createServerClient<Database>(url, publishableKey, {
     cookies: {
       getAll() {
         return cookieStore.getAll();

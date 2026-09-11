@@ -3,29 +3,34 @@ import { z } from 'zod';
 /**
  * Environment access, split by trust boundary.
  *
- * `publicEnv` holds values that are inlined into the browser bundle. Reading
- * `process.env.NEXT_PUBLIC_*` by its full literal name is required — Next.js
- * replaces those expressions at build time and cannot resolve dynamic lookups.
+ * `NEXT_PUBLIC_*` values are inlined into the browser bundle at build time.
+ * Reading them by their full literal name is required — Next.js substitutes
+ * those exact expressions and cannot resolve a dynamic lookup.
  *
- * `serverEnv()` is never imported from a "use client" module. See
- * lib/supabase/admin.ts for the one consumer of the service-role key.
+ * There is deliberately NO secret/elevated Supabase key anywhere in this
+ * application. Every Supabase client it creates uses the publishable key and is
+ * therefore subject to Row Level Security. See docs/architecture.md §3.
  */
 
 const publicSchema = z.object({
   NEXT_PUBLIC_SUPABASE_URL: z.url().or(z.literal('')),
-  NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().or(z.literal('')),
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: z.string().or(z.literal('')),
   NEXT_PUBLIC_SITE_URL: z.url().or(z.literal('')),
 });
 
 const parsedPublic = publicSchema.safeParse({
   NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL ?? '',
-  NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '',
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? '',
   NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL ?? '',
 });
 
 export const publicEnv = parsedPublic.success
   ? parsedPublic.data
-  : { NEXT_PUBLIC_SUPABASE_URL: '', NEXT_PUBLIC_SUPABASE_ANON_KEY: '', NEXT_PUBLIC_SITE_URL: '' };
+  : {
+      NEXT_PUBLIC_SUPABASE_URL: '',
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: '',
+      NEXT_PUBLIC_SITE_URL: '',
+    };
 
 /**
  * True when Supabase credentials are present.
@@ -37,19 +42,19 @@ export const publicEnv = parsedPublic.success
 export function isSupabaseConfigured(): boolean {
   return (
     publicEnv.NEXT_PUBLIC_SUPABASE_URL.length > 0 &&
-    publicEnv.NEXT_PUBLIC_SUPABASE_ANON_KEY.length > 0
+    publicEnv.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY.length > 0
   );
 }
 
-export function requireSupabaseEnv(): { url: string; anonKey: string } {
+export function requireSupabaseEnv(): { url: string; publishableKey: string } {
   if (!isSupabaseConfigured()) {
     throw new Error(
-      'Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY (see .env.example).',
+      'Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY (see .env.example).',
     );
   }
   return {
     url: publicEnv.NEXT_PUBLIC_SUPABASE_URL,
-    anonKey: publicEnv.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    publishableKey: publicEnv.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
   };
 }
 

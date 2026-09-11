@@ -28,21 +28,6 @@ const eslintConfig = [
         'error',
         { prefer: 'type-imports', fixStyle: 'inline-type-imports' },
       ],
-      // The service-role client bypasses RLS entirely. `server-only` already
-      // breaks the build on a client import; this makes the mistake visible in
-      // the editor rather than at build time.
-      'no-restricted-imports': [
-        'error',
-        {
-          paths: [
-            {
-              name: '@/lib/supabase/admin',
-              message:
-                'The service-role client is server-only. Import it from server code (server actions, route handlers, server components) only — never from a "use client" module.',
-            },
-          ],
-        },
-      ],
     },
   },
 

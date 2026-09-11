@@ -126,16 +126,22 @@ export function CreateWizard({
         return;
       }
 
+      // The server is the source of truth from here; drop the browser copy so an
+      // abandoned brief does not linger in a possibly shared browser.
+      clearStoredDraft();
       setProjectId(result.data.projectId);
       setPublicReference(result.data.publicReference);
       setStep(3);
     })();
   }, [initialProject, initialExperienceSlug, isAuthenticated]);
 
-  // Keep the sessionStorage copy in step with what the customer has typed.
+  // Mirror what the customer has typed, but only while the brief exists nowhere
+  // else. Once it is a DRAFT row the server is authoritative and re-writing the
+  // browser copy would just leave a stale duplicate behind.
   useEffect(() => {
+    if (projectId) return;
     writeStoredDraft(values);
-  }, [values]);
+  }, [values, projectId]);
 
   // Move focus to the step heading on each change, so keyboard and screen reader
   // users are not left at the bottom of the previous step.
@@ -219,6 +225,7 @@ export function CreateWizard({
         return;
       }
 
+      clearStoredDraft();
       setProjectId(result.data.projectId);
       setPublicReference(result.data.publicReference);
       goTo(3);

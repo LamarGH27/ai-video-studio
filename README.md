@@ -76,18 +76,34 @@ cp .env.example .env.local   # then fill it in — see below
 Copy `.env.example` to `.env.local`. **Never commit `.env.local`, and never put a
 real key in `.env.example`.**
 
-| Variable                        | Where       | Required | Purpose                                                     |
-| ------------------------------- | ----------- | -------- | ----------------------------------------------------------- |
-| `NEXT_PUBLIC_SUPABASE_URL`      | client      | yes      | Supabase project URL                                        |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | client      | yes      | Publishable key; every request still goes through RLS       |
-| `NEXT_PUBLIC_SITE_URL`          | client      | yes      | Absolute origin, used to build auth redirect URLs           |
-| `SUPABASE_SERVICE_ROLE_KEY`     | server only | no       | Bypasses RLS. Unused by the MVP; kept as an extension point |
-| `E2E_USER_EMAIL`                | test only   | no       | Enables the authenticated Playwright specs                  |
-| `E2E_USER_PASSWORD`             | test only   | no       | Enables the authenticated Playwright specs                  |
+| Variable                               | Where     | Required | Purpose                                               |
+| -------------------------------------- | --------- | -------- | ----------------------------------------------------- |
+| `NEXT_PUBLIC_SUPABASE_URL`             | client    | yes      | Supabase project URL                                  |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | client    | yes      | Publishable key; every request still goes through RLS |
+| `NEXT_PUBLIC_SITE_URL`                 | client    | yes      | Absolute origin, used to build auth redirect URLs     |
+| `E2E_CUSTOMER_A_EMAIL` / `_PASSWORD`   | test only | no       | Enables the authenticated Playwright specs            |
+| `E2E_CUSTOMER_B_EMAIL` / `_PASSWORD`   | test only | no       | Enables the cross-customer isolation specs            |
+| `E2E_ADMIN_EMAIL` / `_PASSWORD`        | test only | no       | Enables the admin specs                               |
 
-The service-role key **must never** be given a `NEXT_PUBLIC_` prefix. It is read
-in exactly one file, `lib/supabase/admin.ts`, which is marked `server-only` and
-is additionally blocked from client modules by an ESLint rule.
+### There is no secret key
+
+This application **never uses a Supabase secret key** (`sb_secret_...`, formerly
+the `service_role` key). Nothing in it needs to bypass Row Level Security:
+customer requests run as the customer and admin requests run as the admin, so
+RLS applies to every query the application makes. There is therefore no elevated
+credential to leak, misconfigure, or accidentally prefix with `NEXT_PUBLIC_`.
+
+If a future milestone genuinely needs one — a scheduled job or a webhook with no
+user session — add it as a server-only variable read from a single `server-only`
+module. See `docs/architecture.md` §11.
+
+### A note on key naming
+
+Supabase renamed its public key. On a current project the value is labelled
+**publishable** and looks like `sb_publishable_...`; on an older project the
+equivalent is the key labelled `anon` `public`, a long JWT beginning `eyJ...`.
+Either works here and both behave identically — they are public by design and
+constrained by RLS. The variable is named for the current model.
 
 The public marketing pages render without any Supabase configuration at all, so
 `npm run build` and the public E2E specs work on a fresh clone.
@@ -98,8 +114,9 @@ The public marketing pages render without any Supabase configuration at all, so
 
 ### 1. Create the project
 
-Create a Supabase project and copy the project URL and the publishable (anon) key
-from **Project Settings → API** into `.env.local`.
+Create a Supabase project, then from **Project Settings → API Keys** copy the
+project URL and the **publishable** key into `.env.local`. (On an older project
+that key is labelled `anon` `public` — see the note above.)
 
 ### 2. Apply the migrations
 
@@ -121,8 +138,15 @@ in order:
 2. `20260101000100_row_level_security.sql` — RLS enabled, explicit policies
 3. `20260101000200_storage.sql` — private buckets and their storage policies
 4. `20260101000300_seed_reference_data.sql` — experience catalogue and placeholder portfolio
+5. `20260101000400_status_transition_guard.sql` — database-level workflow enforcement
 
-Migration 4 is idempotent and safe to re-run. Migrations 1–3 are not.
+Migrations 3 and 4 are idempotent and safe to re-run. 1, 2 and 5 are not.
+
+To confirm they still apply cleanly from scratch before you touch a real project:
+
+```bash
+npm run verify:db
+```
 
 ### 3. Configure Auth
 
@@ -155,6 +179,21 @@ set role = 'admin'
 where id = (select id from auth.users where email = 'you@example.com');
 ```
 
+### 6. Create the test principals (optional, for the live suites)
+
+The authenticated Playwright specs and `npm run verify:live` need three
+confirmed accounts on a **non-production** project. Sign each one up through
+`/signup`, confirm the email if confirmation is enabled, then promote the third:
+
+```sql
+update public.profiles
+set role = 'admin'
+where id = (select id from auth.users where email = 'avs-admin@example.test');
+```
+
+Put the six credentials in `.env.local` (`E2E_CUSTOMER_A_*`, `E2E_CUSTOMER_B_*`,
+`E2E_ADMIN_*`). Never commit them, and never use personal logins.
+
 ---
 
 ## Local development
@@ -173,57 +212,81 @@ experience → write a brief → sign up → upload a reference image → consen
 
 ## Commands
 
-| Command                    | What it does                                  |
-| -------------------------- | --------------------------------------------- |
-| `npm run dev`              | Development server                            |
-| `npm run build`            | Production build                              |
-| `npm run start`            | Serve a production build                      |
-| `npm run lint`             | ESLint over the whole repository              |
-| `npm run typecheck`        | `tsc --noEmit`                                |
-| `npm test`                 | Vitest unit and component tests, once         |
-| `npm run test:watch`       | Vitest in watch mode                          |
-| `npm run test:e2e`         | Playwright end-to-end tests                   |
-| `npm run test:e2e:install` | Install the Chromium build Playwright expects |
-| `npm run format`           | Prettier, writing changes                     |
-| `npm run format:check`     | Prettier, checking only                       |
+| Command                    | What it does                                      |
+| -------------------------- | ------------------------------------------------- |
+| `npm run dev`              | Development server                                |
+| `npm run build`            | Production build                                  |
+| `npm run start`            | Serve a production build                          |
+| `npm run lint`             | ESLint over the whole repository                  |
+| `npm run typecheck`        | `tsc --noEmit`                                    |
+| `npm test`                 | Vitest unit and component tests, once             |
+| `npm run test:watch`       | Vitest in watch mode                              |
+| `npm run test:e2e`         | Playwright end-to-end tests                       |
+| `npm run test:e2e:install` | Install the Chromium build Playwright expects     |
+| `npm run format`           | Prettier, writing changes                         |
+| `npm run format:check`     | Prettier, checking only                           |
+| `npm run verify:db`        | Database security suite on a throwaway Postgres   |
+| `npm run verify:live`      | Auth / API / Storage suite against a live project |
 
 ---
 
 ## Testing
 
-### Unit and component tests (Vitest)
+Four suites, each proving something the others cannot.
 
-```bash
-npm test
-```
+### 1. Unit and component tests — `npm test`
 
-Cover the parts where a mistake has consequences: storage path generation and
-filename sanitisation, auth redirect safety, the brief/upload/consent schemas,
-the admin status-transition table, and the consent gate on the review step
-rendered through the real UI.
+Pure logic and one component: storage path generation and filename sanitisation,
+auth redirect safety, the brief/upload/consent schemas, the admin transition
+table, draft persistence, and the consent gate rendered through the real UI.
+No database, no network.
 
-Most run in Node. Component tests opt into jsdom with a
-`@vitest-environment jsdom` docblock.
+### 2. Database security suite — `npm run verify:db`
 
-### End-to-end tests (Playwright)
+Applies `supabase/migrations/` to a **clean throwaway PostgreSQL cluster**, then
+runs an adversarial matrix as real `anon` / `authenticated` roles with a JWT
+claim set — which is exactly how PostgREST presents a request to Postgres.
+
+It covers schema assertions, the cross-customer attack matrix, privilege
+escalation, immutability, the status-history trigger, the workflow guard, and
+the storage policy predicates. Because it starts from an empty database, it also
+proves the migrations still apply cleanly from scratch.
+
+`supabase/tests/harness/` contains a small stand-in for the objects Supabase
+manages (the `auth` and `storage` schemas, the API roles, and — importantly —
+the table GRANTs Supabase issues, without which every statement would fail with
+"permission denied" and appear to pass while testing nothing). `attempt()`
+additionally refuses to run as a `BYPASSRLS` role for the same reason.
+
+Requires PostgreSQL 16 server binaries (`initdb`, `pg_ctl`, `psql`).
+
+### 3. Live verification — `npm run verify:live`
+
+Everything the local suite cannot reach, against a real project: Supabase Auth
+sign-in, the policies over the real PostgREST HTTP API with a real JWT, and the
+Storage API — signed upload URLs, signed read URLs, MIME and size enforcement,
+and whether one customer can reach another's object.
+
+Point it at a non-production project; it creates and deletes data. Needs the six
+`E2E_*` credentials.
+
+### 4. End-to-end tests — `npm run test:e2e`
 
 ```bash
 npm run test:e2e:install   # first time only
 npm run test:e2e
 ```
 
-The suite builds the app and serves it, so no dev server is needed.
+Builds the app and serves it, so no dev server is needed.
 
-- `e2e/public-journey.spec.ts` and `e2e/auth-protection.spec.ts` need **no**
+- `public-journey`, `auth-protection` and `draft-persistence` need **no**
   Supabase credentials. They cover the homepage, navigation into Create My Video,
-  the portfolio and its filters, pricing being marked provisional, mobile layout,
-  and unauthenticated visitors being redirected away from `/dashboard` and
-  `/admin`.
-- `e2e/authenticated-journey.spec.ts` covers sign-in, creating a project
-  end to end, viewing your own project, and being refused a project that is not
-  yours. It **skips with a printed reason** unless `E2E_USER_EMAIL` and
-  `E2E_USER_PASSWORD` are set against a Supabase project with the migrations
-  applied and a confirmed user.
+  the portfolio and its filters, provisional pricing, mobile layout,
+  unauthenticated redirects away from `/dashboard` and `/admin`, and the brief
+  surviving the sign-up detour into a new tab.
+- `authenticated-journey` covers Customer A's full journey, Customer B's
+  isolation from it, and the admin queue and status transitions. These **skip
+  with a printed reason** unless the `E2E_*` credentials are set.
 
 If your environment ships a pinned Chromium rather than one Playwright
 downloaded, point at it:
@@ -232,12 +295,11 @@ downloaded, point at it:
 PLAYWRIGHT_CHROMIUM_EXECUTABLE=/path/to/chromium npm run test:e2e
 ```
 
-### Verifying Row Level Security
+### Verifying RLS by hand
 
-`docs/rls-verification.sql` contains runnable queries that assert the critical
-cases directly against the database — cross-customer reads, privilege
-escalation, and consent tampering. Run it in the SQL Editor after applying the
-migrations. See [`docs/database.md`](docs/database.md).
+`docs/rls-verification.sql` contains the same critical assertions as a single
+script you can paste into the Supabase SQL Editor against a live project. See
+[`docs/database.md`](docs/database.md).
 
 ---
 
@@ -258,8 +320,8 @@ Notes:
 - Reference images are uploaded **directly from the browser to Supabase Storage**
   using a server-issued signed upload URL. They never pass through a Vercel
   function, so Vercel's 4.5 MB request-body limit does not apply.
-- `SUPABASE_SERVICE_ROLE_KEY`, if set at all, must be a plain (non-public)
-  environment variable.
+- There is no secret key to configure. Every variable this application reads is
+  a `NEXT_PUBLIC_` one, because nothing it does bypasses Row Level Security.
 
 ---
 
@@ -274,7 +336,7 @@ app/
 components/ui/        shadcn-style primitives (button, input, field, checkbox…)
 components/site/      header, footer, container, wordmark
 features/             feature slices: auth, create-project, dashboard, admin, portfolio
-lib/supabase/         browser / server / proxy / public / service-role clients
+lib/supabase/         browser / server / proxy / public clients (publishable key only)
 lib/validation/       Zod schemas — the server-side authority
 lib/storage/          upload policy, generated object paths
 lib/data/             read-side data access
@@ -283,7 +345,9 @@ lib/catalog/          experience, category and (placeholder) pricing catalogues
 lib/consent/          versioned consent wording
 lib/projects/         status metadata and transition rules
 types/database.ts     typed mirror of the migrations
-supabase/migrations/  schema, RLS, storage, seed
+supabase/migrations/  schema, RLS, storage, seed, workflow guard
+supabase/tests/       database security suite + local Supabase harness
+scripts/verify-live.ts  auth / API / storage verification against a live project
 tests/                Vitest
 e2e/                  Playwright
 docs/                 architecture, database, RLS verification
@@ -315,8 +379,17 @@ version:
 - **Object names are generated, never taken from the upload.** The uploaded
   filename is sanitised and kept for support only.
 - **A customer cannot grant themselves the admin role** — blocked by an RLS
-  policy and, independently, by a database trigger.
+  policy and, independently, by a database trigger. Not even an admin can grant
+  a role through the API; promotion is a deliberate, out-of-band SQL action.
 - **Admin routes are gated server-side** in the layout, not by hiding a link.
+- **The production workflow is enforced by the database**, not only by the
+  buttons the admin UI renders: a trigger rejects any status transition outside
+  the documented table, so no one can drive a project straight from `SUBMITTED`
+  to `COMPLETED`.
+- **There is no secret Supabase key** anywhere in the application.
+
+All of the above is asserted mechanically, not just described — see
+[Testing](#testing).
 
 ---
 
@@ -334,4 +407,8 @@ Deliberate, and documented so nobody mistakes them for finished work:
 - `types/database.ts` is hand-maintained. Once a project is linked, regenerate it
   with `npx supabase gen types typescript --linked > types/database.ts`.
 - Upload content type is verified against Storage metadata, not by inspecting
-  magic bytes. See `docs/architecture.md` for why, and what would harden it.
+  magic bytes. See `docs/architecture.md` §12 for why, and what would harden it.
+- A brief written before signing up is kept in `localStorage`, so it survives a
+  new tab but not a different device. See `docs/architecture.md` §7.
+- Orphaned storage objects are reconciled when a draft is reopened; objects left
+  by a deleted draft need the periodic sweep in `docs/architecture.md` §7.

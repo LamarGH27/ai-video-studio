@@ -16,7 +16,9 @@
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install --with-deps chromium",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "verify:db": "supabase/tests/run-local.sh",
+    "verify:live": "node --experimental-strip-types scripts/verify-live.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "5.9.1",

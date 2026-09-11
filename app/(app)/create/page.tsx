@@ -5,7 +5,11 @@ import { CreateWizard, type WizardInitialProject } from '@/features/create-proje
 import { listActiveExperiences } from '@/lib/data/experiences';
 import { getSessionUser } from '@/lib/auth/session';
 import { getMyDraftProject } from '@/lib/data/projects';
-import { listReferenceImages, signReferenceImages } from '@/lib/data/assets';
+import {
+  listReferenceImages,
+  reconcileOrphanedReferenceImages,
+  signReferenceImages,
+} from '@/lib/data/assets';
 import { isSupabaseConfigured } from '@/lib/env';
 
 export const metadata: Metadata = {
@@ -43,6 +47,10 @@ export default async function CreatePage({
   if (user) {
     const draft = await getMyDraftProject(user.id);
     if (draft) {
+      // Reopening a draft is the natural moment to clear up an upload that
+      // landed but was never confirmed — see lib/data/assets.ts.
+      await reconcileOrphanedReferenceImages(user.id, draft.id);
+
       const assetRows = await listReferenceImages(draft.id);
       const signed = await signReferenceImages(assetRows);
 
@@ -90,8 +98,9 @@ export default async function CreatePage({
         <Container className="pt-10">
           <Alert tone="error" title="This environment is not connected to Supabase">
             Set <code className="font-mono">NEXT_PUBLIC_SUPABASE_URL</code> and{' '}
-            <code className="font-mono">NEXT_PUBLIC_SUPABASE_ANON_KEY</code> to enable accounts,
-            uploads and project submission. See <code className="font-mono">.env.example</code>.
+            <code className="font-mono">NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY</code> to enable
+            accounts, uploads and project submission. See{' '}
+            <code className="font-mono">.env.example</code>.
           </Alert>
         </Container>
       ) : null}

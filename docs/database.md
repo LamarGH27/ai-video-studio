@@ -6,12 +6,13 @@ document explains them.
 
 Apply in filename order:
 
-| Migration                                | Contents                                           | Re-runnable |
-| ---------------------------------------- | -------------------------------------------------- | ----------- |
-| `20260101000000_initial_schema.sql`      | enums, tables, indexes, triggers, helper functions | no          |
-| `20260101000100_row_level_security.sql`  | RLS enabled plus explicit policies                 | no          |
-| `20260101000200_storage.sql`             | private buckets and storage policies               | yes         |
-| `20260101000300_seed_reference_data.sql` | experiences and placeholder portfolio              | yes         |
+| Migration                                    | Contents                                           | Re-runnable |
+| -------------------------------------------- | -------------------------------------------------- | ----------- |
+| `20260101000000_initial_schema.sql`          | enums, tables, indexes, triggers, helper functions | no          |
+| `20260101000100_row_level_security.sql`      | RLS enabled plus explicit policies                 | no          |
+| `20260101000200_storage.sql`                 | private buckets and storage policies               | yes         |
+| `20260101000300_seed_reference_data.sql`     | experiences and placeholder portfolio              | yes         |
+| `20260101000400_status_transition_guard.sql` | workflow enforcement + audit trail ordering        | no          |
 
 ---
 
@@ -91,8 +92,10 @@ creates rows) and no DELETE policy (accounts go through `auth.users`).
 
 **Role immutability is enforced twice.** The `WITH CHECK` above pins the column,
 and `profiles_enforce_role_immutable` (a `BEFORE UPDATE` trigger) raises `42501`
-if `role` changes and the caller is not a service-role client. A customer cannot
-make themselves an admin through the API under any circumstances.
+if `role` changes and the caller is not a service-role client. Since this
+application holds no secret key, that means **no request through the application
+can change a role at all** — not a customer's own, and not an admin acting on
+someone else's. Promotion is a deliberate out-of-band SQL action; see the README.
 
 ---
 
@@ -154,8 +157,28 @@ cannot be half-submitted even by direct SQL.
 
 **Triggers** — `set_updated_at`; `enforce_project_owner_immutable` (blocks any
 change to `user_id` or `public_reference`, which a policy cannot express because
-it cannot reference `OLD`); `record_project_status_change` (writes history on
-insert and on every status change).
+it cannot reference `OLD`); `enforce_project_status_transition` (rejects any
+status change outside the workflow below, and runs _before_ history is written so
+a rejected move leaves no trace); `record_project_status_change` (writes history
+on insert and on every accepted status change).
+
+**The workflow.** `allowed_status_transitions()` is the authority:
+
+| From                 | May move to                                    |
+| -------------------- | ---------------------------------------------- |
+| `DRAFT`              | `SUBMITTED`, `CANCELLED`                       |
+| `SUBMITTED`          | `ASSETS_REVIEW`, `IN_PRODUCTION`, `CANCELLED`  |
+| `ASSETS_REVIEW`      | `IN_PRODUCTION`, `SUBMITTED`, `CANCELLED`      |
+| `IN_PRODUCTION`      | `PREVIEW_READY`, `ASSETS_REVIEW`, `CANCELLED`  |
+| `PREVIEW_READY`      | `REVISION_REQUESTED`, `COMPLETED`, `CANCELLED` |
+| `REVISION_REQUESTED` | `IN_PRODUCTION`, `PREVIEW_READY`, `CANCELLED`  |
+| `COMPLETED`          | — final                                        |
+| `CANCELLED`          | — final                                        |
+
+Nothing returns to `DRAFT`: that would hand edit rights back to the customer
+under the "owner can update own draft projects" policy.
+`ALLOWED_ADMIN_TRANSITIONS` in `lib/projects/status.ts` mirrors this table, but
+only to decide which buttons to render — **keep the two in step**.
 
 **RLS intent** — a customer sees and creates only their own projects, and may
 edit one only while it is a `DRAFT`. Submitting is the same act as making the
@@ -261,7 +284,12 @@ Append-only audit trail of status changes.
 **RLS intent** — read-only to everyone through the API. There are no INSERT,
 UPDATE or DELETE policies at all: rows are written exclusively by the
 `SECURITY DEFINER` trigger `record_project_status_change()`. Application code
-cannot forge, amend or skip an entry.
+cannot forge, amend or skip an entry — not a customer's, and not an admin's.
+
+`created_at` is written as `clock_timestamp()`, not left to the `now()` default.
+`now()` is _transaction_ time, so two transitions applied in one transaction
+would land with identical timestamps and, since `id` is a random UUID, the trail
+would have no deterministic order.
 
 | Policy                                                       | Op     | Rule                                 |
 | ------------------------------------------------------------ | ------ | ------------------------------------ |
@@ -321,8 +349,14 @@ no customer or public write path.
 | `record_project_status_change()`        | trigger, SECURITY DEFINER | Writes `project_status_history`                                        |
 | `generate_project_reference()`          | volatile                  | `AVS-` + 6-digit sequence value                                        |
 
-Every `SECURITY DEFINER` function pins `search_path` so it cannot be hijacked by
-a schema on the caller's path.
+**Every** function in `public` pins `search_path`, not only the `SECURITY
+DEFINER` ones, so none can be hijacked by a schema on the caller's path. This is
+Supabase's `function_search_path_mutable` lint rule; the database suite asserts
+it mechanically so it cannot regress.
+
+`is_admin()` and `current_profile_role()` are defined _after_ `public.profiles`
+in the initial migration. Both are `language sql`, whose body is parsed and
+validated at `CREATE` time, so neither can be declared before the table it reads.
 
 ---
 

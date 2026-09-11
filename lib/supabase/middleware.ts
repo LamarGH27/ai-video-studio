@@ -20,9 +20,9 @@ export async function updateSession(request: NextRequest): Promise<{
     return { response, user: null };
   }
 
-  const { url, anonKey } = requireSupabaseEnv();
+  const { url, publishableKey } = requireSupabaseEnv();
 
-  const supabase = createServerClient<Database>(url, anonKey, {
+  const supabase = createServerClient<Database>(url, publishableKey, {
     cookies: {
       getAll() {
         return request.cookies.getAll();

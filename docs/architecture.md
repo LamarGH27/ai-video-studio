@@ -13,7 +13,7 @@ Browser
   ├── Next.js App Router on Vercel
   │     ├── Server Components  ── read  ──┐
   │     ├── Server Actions     ── write ──┤   user-scoped Supabase client
-  │     ├── Route Handlers     ── auth  ──┤   (anon key + session cookie)
+  │     ├── Route Handlers     ── auth  ──┤   (publishable key + session cookie)
   │     └── proxy.ts           ── session refresh + route gating
   │                                        │
   └── direct upload (signed URL) ──────────┼──► Supabase Storage (private)
@@ -69,8 +69,8 @@ Business logic is kept out of page components:
 | `/portfolio`                          | dynamic (searchParams)   | category filter is a real URL        |
 | `/create`, `/dashboard/*`, `/admin/*` | `force-dynamic`          | per-user, must never be cached       |
 
-Public reads use `lib/supabase/public.ts` — a sessionless anon client that does
-not touch cookies, so marketing pages can stay static. It sees exactly what an
+Public reads use `lib/supabase/public.ts` — a sessionless publishable-key client
+that does not touch cookies, so marketing pages can stay static. It sees exactly what an
 anonymous visitor sees under RLS.
 
 ### Design
@@ -96,13 +96,20 @@ states exist for every asynchronous surface.
 Supabase Auth with `@supabase/ssr`, following the current recommended
 architecture. Four clients, one per trust boundary:
 
-| File                         | Runs where             | Key          | Notes                                   |
-| ---------------------------- | ---------------------- | ------------ | --------------------------------------- |
-| `lib/supabase/client.ts`     | browser                | anon         | RLS applies                             |
-| `lib/supabase/server.ts`     | RSC / actions / routes | anon         | reads session from cookies; RLS applies |
-| `lib/supabase/middleware.ts` | proxy                  | anon         | refreshes the session cookie            |
-| `lib/supabase/public.ts`     | server, sessionless    | anon         | public reads only, keeps pages static   |
-| `lib/supabase/admin.ts`      | server only            | service role | **bypasses RLS**; unused by the MVP     |
+| File                         | Runs where             | Key         | Notes                                   |
+| ---------------------------- | ---------------------- | ----------- | --------------------------------------- |
+| `lib/supabase/client.ts`     | browser                | publishable | RLS applies                             |
+| `lib/supabase/server.ts`     | RSC / actions / routes | publishable | reads session from cookies; RLS applies |
+| `lib/supabase/middleware.ts` | proxy                  | publishable | refreshes the session cookie            |
+| `lib/supabase/public.ts`     | server, sessionless    | publishable | public reads only, keeps pages static   |
+
+**There is no fifth client.** This application holds no Supabase secret key
+(`sb_secret_...`, formerly `service_role`). Every client above uses the
+publishable key, so Row Level Security constrains every query the application
+makes — including the admin ones. An earlier draft of this codebase carried a
+service-role client "as an extension point"; it was removed, because an unused
+credential is all risk and no benefit. §11 says where to reintroduce one if a
+future milestone genuinely needs it.
 
 Rules that are enforced, not just intended:
 
@@ -110,9 +117,8 @@ Rules that are enforced, not just intended:
   Auth server; `getSession()` trusts the cookie's contents.
 - **Session refresh happens in `proxy.ts`.** Server Components cannot write
   cookies, so refresh has to happen there or sessions silently expire.
-- **The service-role key is imported in exactly one file**, which is marked
-  `server-only` (a client import becomes a build error) and is additionally
-  blocked from client modules by an ESLint `no-restricted-imports` rule.
+- **No code path bypasses RLS.** Admin reads and writes run as the signed-in
+  admin, which is what makes `project_status_history.changed_by` meaningful.
 
 ### Flows
 
@@ -204,7 +210,14 @@ Three things are worth calling out:
 3. **`is_admin()` is `SECURITY DEFINER` with a pinned empty `search_path`,** so it
    can read `profiles.role` without tripping the policies defined in terms of it,
    and cannot be hijacked by a schema on the caller's search path. `EXECUTE` is
-   revoked from `PUBLIC`.
+   revoked from `PUBLIC`. Every function in `public` pins its `search_path`, and
+   the database suite asserts that none regresses.
+4. **The workflow itself is enforced in the database.** RLS decides _who_ may
+   change a status; `20260101000400_status_transition_guard.sql` decides _which_
+   changes are legal. Without it, anyone holding the admin role could drive a
+   project from `SUBMITTED` straight to `COMPLETED` through the API, skipping
+   asset review and production — the transition table in
+   `lib/projects/status.ts` only ever governed which buttons were rendered.
 
 `FORCE ROW LEVEL SECURITY` is deliberately **not** set. The application never
 connects as a table owner — it uses the `anon` / `authenticated` / `service_role`
@@ -269,6 +282,45 @@ Why that does not weaken anything:
   from Storage and rejects anything outside policy, deleting the object rather
   than leaving it orphaned.
 
+### Orphaned objects
+
+Because the browser uploads first and the server records second, an object can
+outlive its bookkeeping. Two ways:
+
+1. **The tab closes between the upload landing and `confirmUploadAction` running.**
+   The object exists; no `project_assets` row points at it. (A _failed_
+   confirmation is not one of these — that path deletes the object rather than
+   leaving it orphaned.)
+2. **A DRAFT project is deleted.** `project_assets` rows cascade away, but
+   `storage.objects` has no foreign key into `public.projects`, so the bytes stay.
+
+Case 1 is repaired at the natural moment: reopening a draft calls
+`reconcileOrphanedReferenceImages()`, which lists that project's folder and
+deletes anything with no asset row and older than a one-hour grace period. It
+runs as the signed-in customer, so storage RLS confines it to their own folder,
+and the grace period means an in-flight confirmation is never mistaken for an
+orphan. No scheduler and no background worker.
+
+Case 2 leaves nothing to reconcile against. Until there is a reason to build
+more, sweep it periodically:
+
+```sql
+-- Reference-image objects no asset row points at. Inspect before deleting.
+select o.name, o.created_at, o.metadata->>'size' as bytes
+from storage.objects o
+left join public.project_assets a
+  on a.storage_bucket = o.bucket_id and a.storage_path = o.name
+where o.bucket_id = 'reference-images'
+  and a.id is null
+  and o.created_at < now() - interval '24 hours'
+order by o.created_at;
+```
+
+Run it from the SQL Editor, or schedule it with `pg_cron` once the volume
+justifies it. A fuller design — an upload-intent row reconciled by a worker —
+is only worth building if orphans turn out to be common, and this query is how
+you would find that out.
+
 ### Displaying private media
 
 Reference images are shown only through signed URLs minted per request with a
@@ -296,17 +348,34 @@ Configured in one place, `lib/storage/config.ts`, and enforced in three:
 /  →  /portfolio  →  Create My Video
       │
       ├─ 1. Experience      public, client state
-      ├─ 2. Creative brief  public, client state, sessionStorage-backed
+      ├─ 2. Creative brief  public, client state, localStorage-backed
       │        └─ sign up / sign in if needed → draft project created (DRAFT)
       ├─ 3. Reference images  signed upload → private bucket
       └─ 4. Review + consent  → Submit Project → SUBMITTED
                                    └─► /dashboard/projects/{id}
 ```
 
-Steps 1 and 2 are held in browser state and mirrored to `sessionStorage`
+Steps 1 and 2 are held in browser state and mirrored to `localStorage`
 (`features/create-project/draft-storage.ts`) so the sign-up detour does not lose
 the customer's work. Nothing sensitive goes in there: no identifiers, no tokens,
-no image data, and it does not outlive the tab.
+no image data. Entries are schema-versioned and expire after seven days.
+
+**Why `localStorage` and not `sessionStorage`.** With email confirmation enabled
+the journey is `/create → /signup → [email] → /auth/confirm?next=/create →
+/create`, and that confirmation link is opened from a mail client — which opens a
+**new tab**. `sessionStorage` is scoped to one tab, so a brief kept there is gone
+at exactly the moment the customer has just committed to an account. This was a
+real defect, caught in Milestone 1.5; `e2e/draft-persistence.spec.ts` reproduces
+the new-tab journey and fails against the old implementation.
+
+The limit: a customer who signs up on a laptop and confirms on their phone will
+not find the brief on the phone. No browser-side store crosses devices, and the
+alternative — persisting an anonymous visitor's creative input server-side,
+owned by nobody and deletable by nobody — is worse. The brief is still waiting on
+the original device.
+
+Once authenticated, the brief is promoted to a DRAFT row immediately and the
+browser copy is cleared: from that point the server is the only source of truth.
 
 The draft project row is created when the customer leaves step 2, because uploads
 need something to be filed against. A customer who abandons the flow and returns
@@ -388,16 +457,43 @@ action or form anywhere in this application that writes `profiles.role`.
 
 Nothing below is built. These are the seams that exist so it can be.
 
-| Later               | Seam                                                                                   |
-| ------------------- | -------------------------------------------------------------------------------------- |
-| Video generation    | Status moves past `IN_PRODUCTION`; a worker reads the project and its reference assets |
-| Preview delivery    | `asset_type = 'PREVIEW_VIDEO'` into `project-deliveries`; customer read policy exists  |
-| Final delivery      | `asset_type = 'FINAL_VIDEO'`, same path                                                |
-| Revision requests   | `REVISION_REQUESTED` status exists; needs a customer-facing notes table and action     |
-| Payments            | A `project_payments` table keyed on `projects.id`; gate the `SUBMITTED` transition     |
-| Transactional email | Triggered from status transitions, which are already recorded centrally                |
-| Real portfolio      | Populate `portfolio_items.media_url`; `PortfolioFrame` swaps for the real element      |
-| Background jobs     | `lib/supabase/admin.ts` is the single audited place the service-role key is read       |
+| Later               | Seam                                                                                                                                                                                                                                                                                           |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Video generation    | Status moves past `IN_PRODUCTION`; a worker reads the project and its reference assets                                                                                                                                                                                                         |
+| Preview delivery    | `asset_type = 'PREVIEW_VIDEO'` into `project-deliveries`; customer read policy exists                                                                                                                                                                                                          |
+| Final delivery      | `asset_type = 'FINAL_VIDEO'`, same path                                                                                                                                                                                                                                                        |
+| Revision requests   | `REVISION_REQUESTED` status exists; needs a customer-facing notes table and action                                                                                                                                                                                                             |
+| Payments            | A `project_payments` table keyed on `projects.id`; gate the `SUBMITTED` transition                                                                                                                                                                                                             |
+| Transactional email | Triggered from status transitions, which are already recorded centrally                                                                                                                                                                                                                        |
+| Real portfolio      | Populate `portfolio_items.media_url`; `PortfolioFrame` swaps for the real element                                                                                                                                                                                                              |
+| Background jobs     | No secret key exists today. If one becomes necessary, add it as a server-only variable read from exactly one `server-only` module, re-add the ESLint `no-restricted-imports` guard against client imports, and authorise explicitly inside it — there is no RLS safety net behind a secret key |
+| Orphan sweep        | The query in §6, scheduled with `pg_cron`, once volume justifies it                                                                                                                                                                                                                            |
+
+---
+
+## 11b. How the security model is verified
+
+Claims in this document are asserted mechanically wherever that is possible.
+
+| Layer                                      | Proven by                           | Needs a live project? |
+| ------------------------------------------ | ----------------------------------- | --------------------- |
+| Pure logic (paths, schemas, transitions)   | `npm test`                          | no                    |
+| Schema, RLS, triggers, storage policies    | `npm run verify:db`                 | no                    |
+| Sign-up detour and draft persistence       | `npm run test:e2e`                  | no                    |
+| Supabase Auth, PostgREST HTTP, Storage API | `npm run verify:live`               | **yes**               |
+| Full customer + admin journeys             | `npm run test:e2e` with `E2E_*` set | **yes**               |
+
+`npm run verify:db` applies the migrations to a clean throwaway PostgreSQL
+cluster and attacks it as real `anon` / `authenticated` roles carrying a JWT
+claim set — the same way PostgREST presents a request. It stands in for
+everything below the API boundary, and nothing above it. What it cannot reach —
+Auth, PostgREST itself, and the Storage service that issues signed URLs and
+enforces MIME and size limits — is exactly what `npm run verify:live` covers.
+
+Two guards exist because a security suite that passes for the wrong reason is
+worse than none: the harness replicates the table GRANTs Supabase issues (so a
+denial is RLS and not a missing grant), and `avs_test.attempt()` refuses to run
+as a `BYPASSRLS` role at all.
 
 ---
 
