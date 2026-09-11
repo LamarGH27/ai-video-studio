@@ -1,0 +1,104 @@
+import Link from 'next/link';
+import type { Metadata } from 'next';
+import { FolderOpen, Plus } from 'lucide-react';
+import { Container } from '@/components/site/container';
+import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/empty-state';
+import { SignOutButton } from '@/features/auth/sign-out-button';
+import { ProjectCard } from '@/features/dashboard/project-card';
+import { requireUser, getProfile } from '@/lib/auth/session';
+import { listMyProjects } from '@/lib/data/projects';
+
+export const metadata: Metadata = { title: 'Dashboard', robots: { index: false, follow: false } };
+
+export const dynamic = 'force-dynamic';
+
+export default async function DashboardPage() {
+  const user = await requireUser('/dashboard');
+  const [profile, projects] = await Promise.all([getProfile(), listMyProjects(user.id)]);
+
+  const displayName = profile?.display_name?.split(' ')[0] ?? null;
+  const drafts = projects.filter((project) => project.status === 'DRAFT');
+  const active = projects.filter((project) => project.status !== 'DRAFT');
+
+  return (
+    <Container className="py-14 sm:py-20">
+      <header className="flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="eyebrow">Your projects</p>
+          <h1 className="mt-5 display-heading text-[clamp(2rem,5vw,3rem)]">
+            {displayName ? `Welcome back, ${displayName}.` : 'Welcome back.'}
+          </h1>
+          <p className="mt-4 max-w-lg leading-relaxed text-bone-400">
+            Everything you have briefed, and where it has got to.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <SignOutButton />
+          <Button asChild variant="accent">
+            <Link href="/create">
+              <Plus aria-hidden="true" />
+              New project
+            </Link>
+          </Button>
+        </div>
+      </header>
+
+      {projects.length === 0 ? (
+        <EmptyState
+          className="mt-14"
+          icon={<FolderOpen className="size-8" aria-hidden="true" />}
+          title="No projects yet"
+          description="Start a brief and it will appear here, with its status, from the moment you submit it."
+          action={
+            <Button asChild variant="accent">
+              <Link href="/create">Create My Video</Link>
+            </Button>
+          }
+        />
+      ) : (
+        <div className="mt-14 space-y-14">
+          {drafts.length > 0 ? (
+            <section aria-labelledby="drafts-heading">
+              <h2
+                id="drafts-heading"
+                className="text-sm font-medium tracking-wide text-bone-400 uppercase"
+              >
+                Unfinished drafts
+              </h2>
+              <p className="mt-2 text-sm text-bone-400/70">
+                Not submitted yet. Pick up where you left off from{' '}
+                <Link href="/create" className="text-brass-300 underline-offset-4 hover:underline">
+                  Create My Video
+                </Link>
+                .
+              </p>
+              <ul className="mt-5 space-y-4">
+                {drafts.map((project) => (
+                  <ProjectCard key={project.id} project={project} />
+                ))}
+              </ul>
+            </section>
+          ) : null}
+
+          {active.length > 0 ? (
+            <section aria-labelledby="active-heading">
+              <h2
+                id="active-heading"
+                className="text-sm font-medium tracking-wide text-bone-400 uppercase"
+              >
+                Submitted projects
+              </h2>
+              <ul className="mt-5 space-y-4">
+                {active.map((project) => (
+                  <ProjectCard key={project.id} project={project} />
+                ))}
+              </ul>
+            </section>
+          ) : null}
+        </div>
+      )}
+    </Container>
+  );
+}

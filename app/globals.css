@@ -1,0 +1,131 @@
+@import 'tailwindcss';
+
+/* =============================================================================
+   AI Video Studio — design tokens
+   -----------------------------------------------------------------------------
+   A single dark, cinematic surface. The palette is deliberately narrow: near
+   black grounds, a warm bone foreground, and one restrained brass accent that
+   does the work of a brand colour without shouting.
+   ========================================================================== */
+
+@theme {
+  --color-ink-950: oklch(0.145 0.006 285);
+  --color-ink-900: oklch(0.178 0.006 285);
+  --color-ink-850: oklch(0.208 0.007 285);
+  --color-ink-800: oklch(0.244 0.008 285);
+
+  --color-bone-50: oklch(0.975 0.006 90);
+  --color-bone-200: oklch(0.905 0.008 90);
+  --color-bone-400: oklch(0.74 0.012 90);
+
+  --color-brass-300: oklch(0.86 0.09 82);
+  --color-brass-400: oklch(0.8 0.115 78);
+  --color-brass-500: oklch(0.73 0.13 74);
+
+  --font-display: 'Georgia', 'Times New Roman', ui-serif, serif;
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+
+  --radius-panel: 1.25rem;
+
+  --animate-rise: rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-fade: fade 0.6s ease-out both;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  * {
+    border-color: color-mix(in oklab, var(--color-bone-50) 10%, transparent);
+  }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--color-ink-950);
+    color: var(--color-bone-200);
+    font-family: var(--font-sans);
+    font-synthesis-weight: none;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Visible, consistent focus everywhere. Never remove without a replacement. */
+  :focus-visible {
+    outline: 2px solid var(--color-brass-400);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--color-brass-400) 35%, transparent);
+    color: var(--color-bone-50);
+  }
+
+  /* Respect a user's motion preference — the site must work without animation. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@utility display-heading {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  line-height: 1.02;
+  color: var(--color-bone-50);
+}
+
+@utility eyebrow {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--color-brass-300);
+}
+
+/* Film-grain-adjacent vignette used behind hero and section headers. */
+@utility surface-glow {
+  background-image:
+    radial-gradient(
+      60rem 30rem at 50% -10%,
+      color-mix(in oklab, var(--color-brass-500) 12%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      40rem 24rem at 90% 10%,
+      color-mix(in oklab, var(--color-brass-400) 7%, transparent),
+      transparent 70%
+    );
+}
