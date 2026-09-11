@@ -11,6 +11,7 @@ import {
   hasBothCustomers,
   hasCustomerA,
   signIn,
+  tinyJpeg,
 } from './helpers';
 
 /**
@@ -56,7 +57,7 @@ test.describe('Customer A journey', () => {
     await expect(page.getByText(reference)).toBeVisible();
   });
 
-  test('consent cannot be skipped', async ({ page }) => {
+  test('a project cannot be submitted without both required consents', async ({ page }) => {
     await signIn(page, CUSTOMER_A, '/create');
     await page.goto('/create');
 
@@ -71,8 +72,27 @@ test.describe('Customer A journey', () => {
     await expect(page.getByRole('heading', { name: /Upload your reference images/ })).toBeVisible({
       timeout: 20_000,
     });
-    // Submission is unreachable without at least one reference image…
-    await expect(page.getByRole('button', { name: /Continue to review/ })).toBeDisabled();
+
+    const uploaded = page.getByRole('button', { name: /^Remove / });
+    const before = await uploaded.count();
+    await page.setInputFiles('#reference-images', {
+      name: 'reference.jpg',
+      mimeType: 'image/jpeg',
+      buffer: tinyJpeg(),
+    });
+    await expect(uploaded).toHaveCount(before + 1, { timeout: 30_000 });
+    await page.getByRole('button', { name: /Continue to review/ }).click();
+
+    // Submitting with nothing ticked must be refused, and must not navigate.
+    await expect(page.getByRole('heading', { name: /Check it over/ })).toBeVisible();
+    await page.getByRole('button', { name: 'Submit Project' }).click();
+    await expect(page.getByRole('alert')).toContainText(/required confirmations/i);
+    await expect(page).toHaveURL(/\/create/);
+
+    // One of the two is still not enough.
+    await page.getByRole('checkbox', { name: /I confirm that I am the person shown/ }).click();
+    await page.getByRole('button', { name: 'Submit Project' }).click();
+    await expect(page).toHaveURL(/\/create/);
   });
 
   test('is redirected away from the admin area', async ({ page }) => {

@@ -295,6 +295,17 @@ downloaded, point at it:
 PLAYWRIGHT_CHROMIUM_EXECUTABLE=/path/to/chromium npm run test:e2e
 ```
 
+### Running the live suites from CI
+
+`.github/workflows/live-supabase-verification.yml` runs the format check, lint,
+typecheck, unit tests, production build, `verify:live` and the complete
+Playwright suite against a real non-production Supabase project, from a
+GitHub-hosted runner. It is **manual only** (`workflow_dispatch`) and does not
+apply migrations.
+
+Setup, the eight required secrets, and how to read the results:
+[`docs/live-verification.md`](docs/live-verification.md).
+
 ### Verifying RLS by hand
 
 `docs/rls-verification.sql` contains the same critical assertions as a single
@@ -348,9 +359,10 @@ types/database.ts     typed mirror of the migrations
 supabase/migrations/  schema, RLS, storage, seed, workflow guard
 supabase/tests/       database security suite + local Supabase harness
 scripts/verify-live.ts  auth / API / storage verification against a live project
+.github/workflows/    manual live-verification workflow
 tests/                Vitest
 e2e/                  Playwright
-docs/                 architecture, database, RLS verification
+docs/                 architecture, database, live verification, RLS verification
 proxy.ts              session refresh + route gating (Next 16 proxy convention)
 ```
 

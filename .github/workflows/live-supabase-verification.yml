@@ -1,0 +1,220 @@
+name: Live Supabase verification
+
+# =============================================================================
+# Closes the Milestone 1.5 verification gap.
+#
+# The database half of the security model is provable offline (`npm run
+# verify:db`, against a throwaway PostgreSQL cluster). The half above Postgres —
+# Supabase Auth, the PostgREST HTTP API and the Storage API — needs a real
+# project, which the development environment cannot reach. This runs those
+# suites from a GitHub-hosted runner, which can.
+#
+# Manual only. It signs in as real accounts and creates and deletes real rows
+# and storage objects, so it must be pointed at a NON-PRODUCTION project.
+#
+# It deliberately does NOT apply migrations. Those are applied to the Supabase
+# project deliberately and by hand — see docs/live-verification.md.
+#
+# Setup, secrets and how to read the results: docs/live-verification.md
+# =============================================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Why this run (appears in the job summary)'
+        required: false
+        default: 'Milestone 1.5 verification'
+
+# Least privilege: this workflow reads code and writes nothing back.
+permissions:
+  contents: read
+
+# The suites share one Supabase project and create and delete data in it.
+# Two concurrent runs would interfere with each other, so queue instead of
+# cancelling — a cancelled run can leave half-created rows behind.
+concurrency:
+  group: live-supabase-verification
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify against live Supabase
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    # Named so required reviewers can be attached later in
+    # Settings -> Environments without touching this file. Repository secrets
+    # resolve normally whether or not the environment defines its own.
+    environment: live-verification
+
+    env:
+      CI: true
+      # Public configuration. Not secret — every browser that loads the app
+      # receives both of these — but kept in the same mechanism for consistency.
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+      # The app under test is served by Playwright on this origin.
+      NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3100
+      E2E_PORT: '3100'
+      # Test principals. GitHub masks these in logs automatically; nothing in
+      # this workflow echoes them regardless.
+      E2E_CUSTOMER_A_EMAIL: ${{ secrets.E2E_CUSTOMER_A_EMAIL }}
+      E2E_CUSTOMER_A_PASSWORD: ${{ secrets.E2E_CUSTOMER_A_PASSWORD }}
+      E2E_CUSTOMER_B_EMAIL: ${{ secrets.E2E_CUSTOMER_B_EMAIL }}
+      E2E_CUSTOMER_B_PASSWORD: ${{ secrets.E2E_CUSTOMER_B_PASSWORD }}
+      E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
+      E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
+
+    steps:
+      # -----------------------------------------------------------------------
+      # 1. Fail before doing any work if the run cannot possibly succeed.
+      # -----------------------------------------------------------------------
+      # Reports only which NAMES are absent. It never echoes a value, and never
+      # reports the value's length or shape, either of which would leak.
+      - name: Check required secrets are configured
+        id: secrets
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in \
+            NEXT_PUBLIC_SUPABASE_URL \
+            NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY \
+            E2E_CUSTOMER_A_EMAIL \
+            E2E_CUSTOMER_A_PASSWORD \
+            E2E_CUSTOMER_B_EMAIL \
+            E2E_CUSTOMER_B_PASSWORD \
+            E2E_ADMIN_EMAIL \
+            E2E_ADMIN_PASSWORD
+          do
+            if [ -z "${!name:-}" ]; then missing+=("$name"); fi
+          done
+
+          if [ ${#missing[@]} -gt 0 ]; then
+            {
+              echo "### Missing required secrets"
+              echo
+              for name in "${missing[@]}"; do echo "- \`$name\`"; done
+              echo
+              echo "Configure them under **Settings → Secrets and variables → Actions**."
+              echo "See \`docs/live-verification.md\`."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::${#missing[@]} required secret(s) are not configured: ${missing[*]}"
+            exit 1
+          fi
+          echo "All 8 required secrets are present."
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      # `npm ci` installs strictly from package-lock.json and fails if the
+      # lockfile and package.json disagree — which is what we want in CI.
+      - name: Install dependencies
+        run: npm ci
+
+      # -----------------------------------------------------------------------
+      # 2. Static checks. Fail-fast: a later step's result is not meaningful if
+      #    an earlier one is broken. Nothing here is downgraded to a warning.
+      # -----------------------------------------------------------------------
+      - name: Format check
+        id: format
+        run: npm run format:check
+
+      - name: Lint
+        id: lint
+        run: npm run lint
+
+      - name: Typecheck
+        id: typecheck
+        run: npm run typecheck
+
+      - name: Unit and integration tests
+        id: unit
+        run: npm test
+
+      - name: Production build
+        id: build
+        run: npm run build
+
+      # -----------------------------------------------------------------------
+      # 3. The live suites.
+      # -----------------------------------------------------------------------
+      # Supabase Auth, the PostgREST HTTP API and the Storage API, attacked as
+      # Customer A, Customer B, an admin and anonymously. Creates and removes
+      # its own data.
+      - name: Live verification (auth, API, storage)
+        id: verify_live
+        run: npm run verify:live
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      # The complete suite. With the six credentials present, the previously
+      # skipped authenticated specs run for real.
+      #
+      # Traces are OFF on purpose. A Playwright trace records request bodies,
+      # and sign-in is a Server Action, so the POST body carries the test
+      # account's password in the clear. An uploaded trace would put those
+      # passwords in an artifact downloadable by anyone with repository read
+      # access. Screenshots are kept: password fields render as dots. To debug a
+      # failure with a trace, reproduce it locally where the artifact stays on
+      # your machine.
+      - name: End-to-end tests
+        id: e2e
+        run: npx playwright test --trace=off
+
+      # -----------------------------------------------------------------------
+      # 4. Evidence and reporting.
+      # -----------------------------------------------------------------------
+      # Only on failure, and only for a short window. The report can contain
+      # screenshots of signed-in pages, so treat it as sensitive.
+      - name: Upload Playwright report
+        if: ${{ failure() && steps.e2e.outcome == 'failure' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ github.run_id }}
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
+      # Runs whatever happened, so the summary always reflects reality. It
+      # reports outcomes; it does not change the job's result.
+      - name: Report results
+        if: ${{ always() }}
+        # `reason` is caller-supplied text. Interpolating it straight into the
+        # script would let a crafted value run as shell; passing it through the
+        # environment means it is only ever data.
+        env:
+          RUN_REASON: ${{ inputs.reason }}
+        run: |
+          {
+            echo "## Live Supabase verification"
+            echo
+            echo "**Reason:** ${RUN_REASON//$'\n'/ }"
+            echo "**Commit:** \`${{ github.sha }}\`"
+            echo
+            echo "| Step | Outcome |"
+            echo "| --- | --- |"
+            echo "| Secret preflight | ${{ steps.secrets.outcome }} |"
+            echo "| Format check | ${{ steps.format.outcome }} |"
+            echo "| Lint | ${{ steps.lint.outcome }} |"
+            echo "| Typecheck | ${{ steps.typecheck.outcome }} |"
+            echo "| Unit and integration tests | ${{ steps.unit.outcome }} |"
+            echo "| Production build | ${{ steps.build.outcome }} |"
+            echo "| Live verification (auth, API, storage) | ${{ steps.verify_live.outcome }} |"
+            echo "| End-to-end tests | ${{ steps.e2e.outcome }} |"
+            echo
+            echo "\`skipped\` means an earlier step failed and the run stopped there."
+            echo
+            echo "Milestone 1.5 is verified only when **every** row above reads \`success\`"
+            echo "and the end-to-end run reports **zero skipped tests**. See"
+            echo "\`docs/live-verification.md\` for how to read a failure."
+          } >> "$GITHUB_STEP_SUMMARY"

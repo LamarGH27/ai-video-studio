@@ -95,12 +95,20 @@ export async function createAndSubmitProject(
   await expect(page.getByRole('heading', { name: /Upload your reference images/ })).toBeVisible({
     timeout: 20_000,
   });
+
+  // Count relative to what is already there. These specs run against a shared
+  // project, and a previous run may have left an unfinished draft carrying
+  // images — asserting an absolute "1 of 10" would be flaky by design.
+  const uploaded = page.getByRole('button', { name: /^Remove / });
+  const before = await uploaded.count();
+
   await page.setInputFiles('#reference-images', {
     name: 'reference.jpg',
     mimeType: 'image/jpeg',
     buffer: tinyJpeg(),
   });
-  await expect(page.getByText(/1 of 10 uploaded/)).toBeVisible({ timeout: 30_000 });
+  await expect(uploaded).toHaveCount(before + 1, { timeout: 30_000 });
+
   await page.getByRole('button', { name: /Continue to review/ }).click();
 
   await page.getByRole('checkbox', { name: /I confirm that I am the person shown/ }).click();

@@ -483,6 +483,11 @@ Claims in this document are asserted mechanically wherever that is possible.
 | Supabase Auth, PostgREST HTTP, Storage API | `npm run verify:live`               | **yes**               |
 | Full customer + admin journeys             | `npm run test:e2e` with `E2E_*` set | **yes**               |
 
+The two rows that need a live project are run from CI by
+`.github/workflows/live-supabase-verification.yml` — manual trigger only, no
+migrations, secrets supplied by GitHub. Setup and how to read the results:
+[`live-verification.md`](live-verification.md).
+
 `npm run verify:db` applies the migrations to a clean throwaway PostgreSQL
 cluster and attacks it as real `anon` / `authenticated` roles carrying a JWT
 claim set — the same way PostgREST presents a request. It stands in for
