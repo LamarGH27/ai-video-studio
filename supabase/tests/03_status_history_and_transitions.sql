@@ -99,7 +99,8 @@ select avs_test.attempt('Transition', 'Admin PREVIEW_READY→COMPLETED (skips cu
 -- The rest of the lifecycle: approval is the customer's, completion needs a final.
 select avs_test.become('customer_a');
 select avs_test.attempt('Transition', 'Customer approves the preview (PREVIEW_READY→FINALISING)', 'ALLOWED',
-  $$ select public.approve_preview(avs_test.id('a_submitted')) $$);
+  $$ select public.approve_preview(
+       avs_test.id('a_submitted'), avs_test.preview_id('a_submitted', 1)) $$);
 
 select avs_test.become('admin');
 select avs_test.attempt('Transition', 'Admin FINALISING→COMPLETED with no final video', 'DENIED',

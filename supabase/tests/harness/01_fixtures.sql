@@ -40,6 +40,27 @@ create or replace function avs_test.id(k text) returns uuid
 language sql stable as $$ select v from avs_test.ids where avs_test.ids.k = $1 $$;
 grant execute on function avs_test.id(text) to anon, authenticated, service_role;
 
+-- Naming a specific preview by version, for the staleness tests.
+--
+-- SECURITY DEFINER on purpose: this is the *test harness* deciding which id to
+-- pass as an argument, not the thing under test. It has to work while acting as
+-- a customer who cannot read the row — that a foreign id is refused is exactly
+-- what those cases assert, so the lookup must not be the thing that blocks them.
+create or replace function avs_test.preview_id(project_key text, want_version int)
+returns uuid
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select a.id
+  from public.project_assets a
+  where a.project_id = avs_test.id(project_key)
+    and a.asset_type = 'PREVIEW_VIDEO'
+    and a.version = want_version
+$$;
+grant execute on function avs_test.preview_id(text, int) to anon, authenticated, service_role;
+
 -- -----------------------------------------------------------------------------
 -- Becoming a principal, exactly as PostgREST presents one.
 -- -----------------------------------------------------------------------------

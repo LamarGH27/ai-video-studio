@@ -57,8 +57,16 @@ function messageForRpcError(error: { message?: string; code?: string }): string 
   if (/only be requested against a preview/i.test(raw)) {
     return 'There is no preview to request changes against right now.';
   }
-  if (/no preview to approve/i.test(raw)) {
-    return 'There is no preview to approve yet.';
+  if (/no preview to (approve|revise)/i.test(raw)) {
+    return 'There is no preview to respond to yet.';
+  }
+  // The customer is deciding on a cut that is no longer the current one.
+  // Reloading is the whole fix, so say exactly that.
+  if (/newer preview has been delivered/i.test(raw)) {
+    return 'A newer preview has arrived since this page loaded. Refresh to watch it before deciding.';
+  }
+  if (/Preview not found/i.test(raw)) {
+    return 'We could not find that preview.';
   }
   if (/between 20 and 2000/i.test(raw)) {
     return 'Tell us a little more about what you would like changed.';
@@ -68,7 +76,7 @@ function messageForRpcError(error: { message?: string; code?: string }): string 
   return 'We could not complete that. Try again.';
 }
 
-/** Approve the latest preview. Atomically records the approval and finalises. */
+/** Approve a named preview. Atomically records the approval and finalises. */
 export async function approvePreviewAction(
   input: ApprovePreviewInput,
 ): Promise<ActionResult<{ approvalId: string }>> {
@@ -86,6 +94,7 @@ export async function approvePreviewAction(
 
   const { data, error } = await supabase.rpc('approve_preview', {
     p_project_id: parsed.data.projectId,
+    p_preview_asset_id: parsed.data.previewAssetId,
   });
 
   if (error || !data) {
@@ -99,7 +108,7 @@ export async function approvePreviewAction(
   return ok({ approvalId: data });
 }
 
-/** Request changes to the latest preview. Atomically records and re-opens work. */
+/** Request changes to a named preview. Atomically records and re-opens work. */
 export async function requestRevisionAction(
   input: RequestRevisionInput,
 ): Promise<ActionResult<{ revisionId: string }>> {
@@ -121,6 +130,7 @@ export async function requestRevisionAction(
 
   const { data, error } = await supabase.rpc('request_project_revision', {
     p_project_id: parsed.data.projectId,
+    p_preview_asset_id: parsed.data.previewAssetId,
     p_message: parsed.data.message,
   });
 

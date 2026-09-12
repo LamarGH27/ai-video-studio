@@ -371,6 +371,36 @@ write. Rows come only from `approve_preview()`.
 
 ---
 
+### The customer's two decisions
+
+`approve_preview(project_id, preview_asset_id)` and
+`request_project_revision(project_id, preview_asset_id, message)` are the only
+routes to `FINALISING` and `REVISION_REQUESTED`. Both are `SECURITY DEFINER`
+with a pinned `search_path`, both are revoked from `PUBLIC` and granted only to
+`authenticated`, and both re-derive the caller from `auth.uid()` rather than
+trusting an argument. A project that does not exist and a project belonging to
+someone else produce the same message, so neither can be used to discover
+whether another customer's id is real.
+
+**Both take the preview id, and it is not decoration.** An administrator may
+upload a replacement preview while the project is already `PREVIEW_READY`, and
+the status does not change when they do — so a customer with the page open is
+looking at a cut that is no longer current. If the functions acted on "whatever
+is latest", that customer's click would approve a film they had never watched,
+and `project_preview_approvals` would record that they had. Instead the named
+asset is checked twice: it must belong to this project and be a
+`PREVIEW_VIDEO` (otherwise `Preview not found`, `42501` — asset ids are
+untrusted input), and it must still be the highest version (otherwise
+`A newer preview has been delivered since this page was loaded`, `40001`, which
+the UI turns into an instruction to refresh). The read that determines the
+latest version happens after `SELECT … FOR UPDATE` on the project row, so a
+preview landing concurrently cannot slip past the check.
+
+A revision is likewise recorded against the preview the notes describe, never
+against a newer one the customer has not seen.
+
+---
+
 ### `portfolio_items`
 
 Public marketing showcase.
@@ -409,18 +439,20 @@ no customer or public write path.
 
 ## Helper functions
 
-| Function                                | Kind                      | Purpose                                                                |
-| --------------------------------------- | ------------------------- | ---------------------------------------------------------------------- |
-| `set_updated_at()`                      | trigger                   | Maintains `updated_at`                                                 |
-| `request_jwt_role()`                    | stable                    | PostgREST role of the current request, or null for a direct connection |
-| `is_admin()`                            | stable, SECURITY DEFINER  | Whether the caller is an admin; `EXECUTE` revoked from `PUBLIC`        |
-| `current_profile_role()`                | stable, SECURITY DEFINER  | Caller's stored role, without recursing through RLS                    |
-| `handle_new_user()`                     | trigger, SECURITY DEFINER | Creates a profile for each new `auth.users` row                        |
-| `enforce_profile_role_immutable()`      | trigger, SECURITY DEFINER | Blocks role changes from non-service-role callers                      |
-| `enforce_project_owner_immutable()`     | trigger                   | Blocks changes to `user_id` and `public_reference`                     |
-| `enforce_child_owner_matches_project()` | trigger, SECURITY DEFINER | Keeps asset/consent `user_id` equal to the project owner               |
-| `record_project_status_change()`        | trigger, SECURITY DEFINER | Writes `project_status_history`                                        |
-| `generate_project_reference()`          | volatile                  | `AVS-` + 6-digit sequence value                                        |
+| Function                                | Kind                      | Purpose                                                                               |
+| --------------------------------------- | ------------------------- | ------------------------------------------------------------------------------------- |
+| `set_updated_at()`                      | trigger                   | Maintains `updated_at`                                                                |
+| `request_jwt_role()`                    | stable                    | PostgREST role of the current request, or null for a direct connection                |
+| `is_admin()`                            | stable, SECURITY DEFINER  | Whether the caller is an admin; `EXECUTE` revoked from `PUBLIC`                       |
+| `current_profile_role()`                | stable, SECURITY DEFINER  | Caller's stored role, without recursing through RLS                                   |
+| `handle_new_user()`                     | trigger, SECURITY DEFINER | Creates a profile for each new `auth.users` row                                       |
+| `enforce_profile_role_immutable()`      | trigger, SECURITY DEFINER | Blocks role changes from non-service-role callers                                     |
+| `enforce_project_owner_immutable()`     | trigger                   | Blocks changes to `user_id` and `public_reference`                                    |
+| `enforce_child_owner_matches_project()` | trigger, SECURITY DEFINER | Keeps asset/consent `user_id` equal to the project owner                              |
+| `record_project_status_change()`        | trigger, SECURITY DEFINER | Writes `project_status_history`                                                       |
+| `generate_project_reference()`          | volatile                  | `AVS-` + 6-digit sequence value                                                       |
+| `approve_preview()`                     | SECURITY DEFINER          | The customer's approval of a named preview; `EXECUTE` granted only to `authenticated` |
+| `request_project_revision()`            | SECURITY DEFINER          | The customer's revision request against a named preview; same grant                   |
 
 **Every** function in `public` pins `search_path`, not only the `SECURITY
 DEFINER` ones, so none can be hijacked by a schema on the caller's path. This is

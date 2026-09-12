@@ -567,14 +567,24 @@ async function main() {
 
   // The customer's two decisions are RPCs, and both must refuse a project that
   // is not the caller's — whatever its real status.
+  // Neither RPC takes "whatever is latest" any more: the caller names the
+  // preview they were shown. A well-formed id belonging to nothing is the right
+  // argument for these cases — the refusal being proved is about the caller and
+  // the project, and it must land before the asset is ever considered.
+  const NO_SUCH_PREVIEW = '00000000-1111-4222-8333-444444444444';
+
   await probe('Delivery RPC', 'B approves A’s project', 'DENIED', async () => {
-    const result = await b.rpc('approve_preview', { p_project_id: aDraft.id });
+    const result = await b.rpc('approve_preview', {
+      p_project_id: aDraft.id,
+      p_preview_asset_id: NO_SUCH_PREVIEW,
+    });
     return result.error ? `DENIED (${result.error.code ?? 'error'})` : 'ALLOWED';
   });
 
   await probe('Delivery RPC', 'B requests a revision on A’s project', 'DENIED', async () => {
     const result = await b.rpc('request_project_revision', {
       p_project_id: aDraft.id,
+      p_preview_asset_id: NO_SUCH_PREVIEW,
       p_message: 'Changing somebody else project that I have no relationship with at all.',
     });
     return result.error ? `DENIED (${result.error.code ?? 'error'})` : 'ALLOWED';
@@ -586,7 +596,10 @@ async function main() {
     'Owner approves a project that is not PREVIEW_READY',
     'DENIED',
     async () => {
-      const result = await a.rpc('approve_preview', { p_project_id: aDraft.id });
+      const result = await a.rpc('approve_preview', {
+        p_project_id: aDraft.id,
+        p_preview_asset_id: NO_SUCH_PREVIEW,
+      });
       return result.error ? `DENIED (${result.error.code ?? 'error'})` : 'ALLOWED';
     },
   );

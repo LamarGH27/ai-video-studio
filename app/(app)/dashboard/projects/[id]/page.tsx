@@ -144,7 +144,10 @@ export default async function ProjectDetailPage({
             <DeliveryVideoPlayer asset={latestPreview} className="mt-6" />
           </div>
 
-          <PreviewDecision projectId={project.id} />
+          {/* The id of the preview rendered directly above, so the decision is
+              about the cut on screen. The database refuses it if a newer
+              preview has landed since this page was rendered. */}
+          <PreviewDecision projectId={project.id} previewAssetId={latestPreview.id} />
         </section>
       ) : null}
 

@@ -44,8 +44,14 @@ export const confirmDeliveryUploadSchema = z.object({
 
 export type ConfirmDeliveryUploadInput = z.infer<typeof confirmDeliveryUploadSchema>;
 
-/** Customer: approve the latest preview. */
-export const approvePreviewSchema = z.object({ projectId: uuid });
+/**
+ * Customer: approve the preview they are looking at.
+ *
+ * The preview id is not decoration. The database refuses an approval that
+ * names anything other than the current latest preview, so that a page loaded
+ * before a replacement was uploaded cannot approve a cut nobody watched.
+ */
+export const approvePreviewSchema = z.object({ projectId: uuid, previewAssetId: uuid });
 
 export type ApprovePreviewInput = z.infer<typeof approvePreviewSchema>;
 
@@ -62,6 +68,7 @@ export const MAX_REVISION_MESSAGE_LENGTH = 2000;
  */
 export const requestRevisionSchema = z.object({
   projectId: uuid,
+  previewAssetId: uuid,
   message: z
     .string()
     .trim()

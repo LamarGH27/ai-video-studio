@@ -97,11 +97,13 @@ select avs_test.attempt('Invariants', 'PREVIEW_READY once a preview exists', 'AL
 select avs_test.become('customer_b');
 
 select avs_test.attempt('Cross-customer', 'B approves A''s preview', 'DENIED',
-  $$ select public.approve_preview(avs_test.id('a_production')) $$);
+  $$ select public.approve_preview(
+       avs_test.id('a_production'), avs_test.preview_id('a_production', 1)) $$);
 
 select avs_test.attempt('Cross-customer', 'B requests a revision on A''s project', 'DENIED',
   $$ select public.request_project_revision(
        avs_test.id('a_production'),
+       avs_test.preview_id('a_production', 1),
        'I would like this changed even though it is not my project at all.') $$);
 
 select avs_test.attempt('Cross-customer', 'B reads A''s preview asset row', 'DENIED',
@@ -146,11 +148,13 @@ select avs_test.attempt('Invariants', 'Customer sets FINALISING directly', 'DENI
 -- 5. Revision: owner-only, one at a time, atomic.
 -- =============================================================================
 select avs_test.attempt('Revision', 'Message shorter than the minimum is rejected', 'DENIED',
-  $$ select public.request_project_revision(avs_test.id('a_production'), 'too short') $$);
+  $$ select public.request_project_revision(
+       avs_test.id('a_production'), avs_test.preview_id('a_production', 1), 'too short') $$);
 
 select avs_test.attempt('Revision', 'Owner requests a revision on their own preview', 'ALLOWED',
   $$ select public.request_project_revision(
        avs_test.id('a_production'),
+       avs_test.preview_id('a_production', 1),
        'The walk along the deck is too quick. Please hold a beat longer at the railing.') $$);
 
 do $$
@@ -190,6 +194,7 @@ select avs_test.become('customer_a');
 select avs_test.attempt('Revision', 'A second simultaneous revision request', 'DENIED',
   $$ select public.request_project_revision(
        avs_test.id('a_production'),
+       avs_test.preview_id('a_production', 1),
        'Actually I would also like the colour grade to be noticeably warmer throughout.') $$);
 
 select avs_test.attempt('Revision', 'Customer edits their own revision text', 'DENIED',
@@ -212,6 +217,34 @@ select avs_test.become('admin');
 select avs_test.attempt('Rework', 'Admin moves REVISION_REQUESTED to IN_PRODUCTION', 'ALLOWED',
   $$ update public.projects set status = 'IN_PRODUCTION'
      where id = avs_test.id('a_production') $$);
+
+-- Beginning work is not answering it. If REVISION_REQUESTED -> IN_PRODUCTION
+-- resolved the revision, the admin would clear the customer's outstanding
+-- request simply by picking it up, and the project could then be carried to
+-- delivery with the change never made and nothing left saying it was asked for.
+-- The revision stays OPEN until a NEW preview exists.
+do $$
+declare v_open int; v_resolved int; v_status public.project_status;
+begin
+  perform avs_test.become_postgres();
+  select status into v_status from public.projects where id = avs_test.id('a_production');
+  select count(*) filter (where status = 'OPEN'), count(*) filter (where status = 'RESOLVED')
+  into v_open, v_resolved
+  from public.project_revisions where project_id = avs_test.id('a_production');
+
+  insert into avs_test.results (area, attack, expected, actual, pass) values (
+    'Rework', 'Starting the rework does NOT resolve the revision',
+    'ALLOWED (IN_PRODUCTION, 1 open, 0 resolved)',
+    format('%s (%s, %s open, %s resolved)',
+           case when v_status = 'IN_PRODUCTION' and v_open = 1 and v_resolved = 0
+                then 'ALLOWED' else 'DENIED' end,
+           v_status, v_open, v_resolved),
+    v_status = 'IN_PRODUCTION' and v_open = 1 and v_resolved = 0);
+end;
+$$;
+
+-- The assertion above read as postgres; go back to being the administrator.
+select avs_test.become('admin');
 
 select avs_test.attempt('Rework', 'Admin uploads Preview 2', 'ALLOWED',
   $$ insert into public.project_assets
@@ -260,12 +293,66 @@ end;
 $$;
 
 -- =============================================================================
+-- 6b. A decision is about the cut the customer watched, not "whatever is latest".
+--
+-- Preview 2 has just replaced Preview 1 while the project stayed PREVIEW_READY
+-- throughout — precisely what happens to a customer who opened the page, was
+-- shown Preview 1, and left it open while the team re-delivered. Their click
+-- must not approve a cut they have never seen, and the approval record must
+-- never claim they did.
+-- =============================================================================
+select avs_test.become('customer_a');
+
+select avs_test.attempt('Staleness', 'Owner approves Preview 1 after Preview 2 landed', 'DENIED',
+  $$ select public.approve_preview(
+       avs_test.id('a_production'), avs_test.preview_id('a_production', 1)) $$);
+
+select avs_test.attempt('Staleness', 'Owner revises Preview 1 after Preview 2 landed', 'DENIED',
+  $$ select public.request_project_revision(
+       avs_test.id('a_production'),
+       avs_test.preview_id('a_production', 1),
+       'Notes written while watching the superseded cut, sent from a stale page.') $$);
+
+-- Asset ids are untrusted input: naming something that is not this project's
+-- preview is refused too, and refused as not-found rather than as out-of-date.
+select avs_test.attempt('Staleness', 'Owner names another project''s asset as the preview', 'DENIED',
+  $$ select public.approve_preview(
+       avs_test.id('a_production'), avs_test.id('b_asset')) $$);
+
+select avs_test.attempt('Staleness', 'Owner names a fabricated asset id', 'DENIED',
+  $$ select public.approve_preview(
+       avs_test.id('a_production'), '00000000-1111-4222-8333-444444444444'::uuid) $$);
+
+-- Nothing above may have changed the project or written a record.
+do $$
+declare v_status public.project_status; v_approvals int; v_open int;
+begin
+  perform avs_test.become_postgres();
+  select status into v_status from public.projects where id = avs_test.id('a_production');
+  select count(*) into v_approvals
+  from public.project_preview_approvals where project_id = avs_test.id('a_production');
+  select count(*) filter (where status = 'OPEN') into v_open
+  from public.project_revisions where project_id = avs_test.id('a_production');
+
+  insert into avs_test.results (area, attack, expected, actual, pass) values (
+    'Staleness', 'The refused decisions left no approval, no revision and no status change',
+    'ALLOWED (PREVIEW_READY, 0 approvals, 0 open)',
+    format('%s (%s, %s approvals, %s open)',
+           case when v_status = 'PREVIEW_READY' and v_approvals = 0 and v_open = 0
+                then 'ALLOWED' else 'DENIED' end,
+           v_status, v_approvals, v_open),
+    v_status = 'PREVIEW_READY' and v_approvals = 0 and v_open = 0);
+end;
+$$;
+
+-- =============================================================================
 -- 7. Approval: owner-only, atomic, and the only route to FINALISING.
 -- =============================================================================
 select avs_test.become('customer_a');
 
-select avs_test.attempt('Approval', 'Owner approves their own latest preview', 'ALLOWED',
-  $$ select public.approve_preview(avs_test.id('a_production')) $$);
+select avs_test.attempt('Approval', 'Owner approves the preview they were shown', 'ALLOWED',
+  $$ select public.approve_preview(
+       avs_test.id('a_production'), avs_test.preview_id('a_production', 2)) $$);
 
 do $$
 declare
@@ -300,11 +387,13 @@ $$;
 select avs_test.become('customer_a');
 
 select avs_test.attempt('Approval', 'Approving twice', 'DENIED',
-  $$ select public.approve_preview(avs_test.id('a_production')) $$);
+  $$ select public.approve_preview(
+       avs_test.id('a_production'), avs_test.preview_id('a_production', 2)) $$);
 
 select avs_test.attempt('Approval', 'Requesting a revision after approving', 'DENIED',
   $$ select public.request_project_revision(
        avs_test.id('a_production'),
+       avs_test.preview_id('a_production', 2),
        'Having approved it I have changed my mind about the ending entirely.') $$);
 
 select avs_test.attempt('Approval', 'Customer inserts an approval row directly', 'DENIED',
@@ -377,11 +466,14 @@ select avs_test.attempt('Delivery reads', 'Anonymous reads any revision', 'DENIE
   $$ select * from public.project_revisions $$);
 
 select avs_test.attempt('Delivery reads', 'Anonymous calls approve_preview', 'DENIED',
-  $$ select public.approve_preview(avs_test.id('a_production')) $$);
+  $$ select public.approve_preview(
+       avs_test.id('a_production'), avs_test.preview_id('a_production', 2)) $$);
 
 select avs_test.attempt('Delivery reads', 'Anonymous calls request_project_revision', 'DENIED',
   $$ select public.request_project_revision(
-       avs_test.id('a_production'), 'An anonymous caller asking for changes to somebody''s film.') $$);
+       avs_test.id('a_production'),
+       avs_test.preview_id('a_production', 2),
+       'An anonymous caller asking for changes to somebody''s film.') $$);
 
 -- =============================================================================
 -- 10. Delivery storage objects follow the same ownership rules.

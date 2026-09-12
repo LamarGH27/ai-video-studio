@@ -8,6 +8,7 @@ import {
   isDeliveryAssetType,
 } from '@/lib/storage/config';
 import {
+  approvePreviewSchema,
   confirmDeliveryUploadSchema,
   deliveryUploadSlotSchema,
   requestRevisionSchema,
@@ -199,11 +200,32 @@ describe('delivery schemas', () => {
 describe('revision request schema', () => {
   const valid = {
     projectId: PROJECT,
+    previewAssetId: OBJECT,
     message: 'Please hold a beat longer at the railing before the camera moves on.',
   };
 
   it('accepts a specific request', () => {
     expect(requestRevisionSchema.safeParse(valid).success).toBe(true);
+  });
+
+  /**
+   * Both customer decisions name the preview they are about. The database is
+   * what refuses a superseded one, but the id has to survive the schema to
+   * reach it — a decision that arrives without one is not a decision about
+   * anything, so it is rejected here rather than defaulting to "the latest".
+   */
+  it('requires the preview being responded to', () => {
+    const { previewAssetId: _omitted, ...withoutPreview } = valid;
+    expect(requestRevisionSchema.safeParse(withoutPreview).success).toBe(false);
+    expect(
+      requestRevisionSchema.safeParse({ ...valid, previewAssetId: 'not-a-uuid' }).success,
+    ).toBe(false);
+
+    const { previewAssetId: _also, ...approvalWithoutPreview } = { ...valid };
+    expect(approvePreviewSchema.safeParse(approvalWithoutPreview).success).toBe(false);
+    expect(
+      approvePreviewSchema.safeParse({ projectId: PROJECT, previewAssetId: OBJECT }).success,
+    ).toBe(true);
   });
 
   /**

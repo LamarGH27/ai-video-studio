@@ -185,10 +185,31 @@ select avs_test.expect('Delivery', 'Both customer RPCs are SECURITY DEFINER with
      and proconfig::text like '%search_path%'));
 
 select avs_test.expect('Delivery', 'approve_preview is not executable by PUBLIC', 'false',
-  (select has_function_privilege('public', 'public.approve_preview(uuid)', 'EXECUTE')::text));
+  (select has_function_privilege('public', 'public.approve_preview(uuid, uuid)', 'EXECUTE')::text));
 
 select avs_test.expect('Delivery', 'request_project_revision is not executable by PUBLIC', 'false',
-  (select has_function_privilege('public', 'public.request_project_revision(uuid, text)', 'EXECUTE')::text));
+  (select has_function_privilege('public', 'public.request_project_revision(uuid, uuid, text)', 'EXECUTE')::text));
+
+-- The earlier signatures took no preview id and acted on whatever was latest.
+-- They must be gone, not merely superseded: an overload left in place would be
+-- resolvable by a stale client and would bypass the staleness check entirely.
+select avs_test.expect('Delivery', 'No unguarded approve_preview(uuid) overload survives', '0',
+  (select count(*)::text from pg_proc
+   where pronamespace = 'public'::regnamespace
+     and proname = 'approve_preview'
+     and pg_get_function_identity_arguments(oid) = 'p_project_id uuid'));
+
+select avs_test.expect('Delivery', 'No unguarded request_project_revision(uuid, text) overload survives', '0',
+  (select count(*)::text from pg_proc
+   where pronamespace = 'public'::regnamespace
+     and proname = 'request_project_revision'
+     and pg_get_function_identity_arguments(oid) = 'p_project_id uuid, p_message text'));
+
+-- Exactly one of each, so there is only ever one way in.
+select avs_test.expect('Delivery', 'Each customer RPC exists exactly once', '2',
+  (select count(*)::text from pg_proc
+   where pronamespace = 'public'::regnamespace
+     and proname in ('approve_preview','request_project_revision')));
 
 -- -----------------------------------------------------------------------------
 -- Storage

@@ -342,9 +342,12 @@ export interface Database {
       is_admin: { Args: Record<string, never>; Returns: boolean };
       // Atomic customer decisions. Each validates auth.uid(), ownership and the
       // expected current status inside the database — see migration 000600.
-      approve_preview: { Args: { p_project_id: string }; Returns: string };
+      approve_preview: {
+        Args: { p_project_id: string; p_preview_asset_id: string };
+        Returns: string;
+      };
       request_project_revision: {
-        Args: { p_project_id: string; p_message: string };
+        Args: { p_project_id: string; p_preview_asset_id: string; p_message: string };
         Returns: string;
       };
     };

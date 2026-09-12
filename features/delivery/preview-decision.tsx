@@ -21,8 +21,18 @@ import { approvePreviewAction, requestRevisionAction } from './customer-actions'
  * PREVIEW_READY — but neither of those is what enforces it. Both actions go
  * through database functions that re-check the caller and the status, so
  * reaching this component by any other route achieves nothing.
+ *
+ * `previewAssetId` is the preview this page actually showed. Both decisions
+ * carry it, and the database refuses either if a newer preview has been
+ * delivered since — an approval must mean the cut the customer watched.
  */
-export function PreviewDecision({ projectId }: { projectId: string }) {
+export function PreviewDecision({
+  projectId,
+  previewAssetId,
+}: {
+  projectId: string;
+  previewAssetId: string;
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [mode, setMode] = useState<'idle' | 'revision'>('idle');
@@ -35,7 +45,7 @@ export function PreviewDecision({ projectId }: { projectId: string }) {
   function approve() {
     setError(null);
     startTransition(async () => {
-      const result = await approvePreviewAction({ projectId });
+      const result = await approvePreviewAction({ projectId, previewAssetId });
       if (!result.ok) {
         setError(result.message);
         return;
@@ -54,7 +64,11 @@ export function PreviewDecision({ projectId }: { projectId: string }) {
     }
 
     startTransition(async () => {
-      const result = await requestRevisionAction({ projectId, message: message.trim() });
+      const result = await requestRevisionAction({
+        projectId,
+        previewAssetId,
+        message: message.trim(),
+      });
       if (!result.ok) {
         setFieldError(result.fieldErrors?.message?.[0] ?? null);
         setError(result.fieldErrors?.message?.[0] ? null : result.message);

@@ -301,24 +301,37 @@ create trigger projects_resolve_revisions
 -- does. There is no window in which a revision exists against a project that is
 -- not REVISION_REQUESTED.
 
-create or replace function public.approve_preview(p_project_id uuid)
+-- The customer names the preview they are approving. Approving "whatever is
+-- latest" would be wrong: an administrator may upload a replacement while the
+-- customer is still watching, and the project stays PREVIEW_READY throughout, so
+-- the click would silently approve a cut they never saw — and the approval
+-- record would then claim otherwise. The id is checked against the project AND
+-- against the current latest version at transaction time, so a stale page
+-- cannot approve, it is told to refresh.
+drop function if exists public.approve_preview(uuid);
+
+create or replace function public.approve_preview(
+  p_project_id uuid,
+  p_preview_asset_id uuid
+)
 returns uuid
 language plpgsql
 security definer
 set search_path = ''
 as $$
 declare
-  v_uid         uuid := (select auth.uid());
-  v_owner       uuid;
-  v_status      public.project_status;
-  v_preview_id  uuid;
-  v_approval_id uuid;
+  v_uid          uuid := (select auth.uid());
+  v_owner        uuid;
+  v_status       public.project_status;
+  v_latest_id    uuid;
+  v_approval_id  uuid;
 begin
   if v_uid is null then
     raise exception 'Authentication required' using errcode = '42501';
   end if;
 
-  -- FOR UPDATE: two clicks in flight at once must not both pass the status check.
+  -- FOR UPDATE: two clicks in flight at once must not both pass the checks
+  -- below, and it also serialises against a concurrent preview upload.
   select p.user_id, p.status into v_owner, v_status
   from public.projects p
   where p.id = p_project_id
@@ -335,18 +348,35 @@ begin
       using errcode = '42501';
   end if;
 
-  select a.id into v_preview_id
+  select a.id into v_latest_id
   from public.project_assets a
   where a.project_id = p_project_id and a.asset_type = 'PREVIEW_VIDEO'
   order by a.version desc
   limit 1;
 
-  if v_preview_id is null then
+  if v_latest_id is null then
     raise exception 'There is no preview to approve' using errcode = '42501';
   end if;
 
+  -- The named asset must belong to THIS project and be a preview. Checked
+  -- separately from the staleness test so that a foreign or fabricated id is
+  -- refused as not-found rather than reported as "out of date".
+  if not exists (
+    select 1 from public.project_assets a
+    where a.id = p_preview_asset_id
+      and a.project_id = p_project_id
+      and a.asset_type = 'PREVIEW_VIDEO'
+  ) then
+    raise exception 'Preview not found' using errcode = '42501';
+  end if;
+
+  if p_preview_asset_id <> v_latest_id then
+    raise exception 'A newer preview has been delivered since this page was loaded'
+      using errcode = '40001';
+  end if;
+
   insert into public.project_preview_approvals (project_id, user_id, preview_asset_id)
-  values (p_project_id, v_uid, v_preview_id)
+  values (p_project_id, v_uid, p_preview_asset_id)
   returning id into v_approval_id;
 
   perform set_config('avs.preview_approval', 'on', true);
@@ -356,13 +386,23 @@ begin
 end;
 $$;
 
-revoke execute on function public.approve_preview(uuid) from public;
-grant execute on function public.approve_preview(uuid) to authenticated;
+revoke execute on function public.approve_preview(uuid, uuid) from public;
+grant execute on function public.approve_preview(uuid, uuid) to authenticated;
 
-comment on function public.approve_preview(uuid) is
-  'Customer approval of the latest preview. Records the approval and moves the project to FINALISING, atomically.';
+comment on function public.approve_preview(uuid, uuid) is
+  'Customer approval of a NAMED preview. Refuses a superseded one. Records the approval and moves the project to FINALISING, atomically.';
 
-create or replace function public.request_project_revision(p_project_id uuid, p_message text)
+-- A revision is a rejection of a SPECIFIC cut, and the message describes that
+-- cut. Recording it against "whatever is latest" would attach the customer's
+-- notes to a preview they never watched, and would silently discard the newer
+-- one. Same staleness rule as approval: name the preview, or be told to refresh.
+drop function if exists public.request_project_revision(uuid, text);
+
+create or replace function public.request_project_revision(
+  p_project_id uuid,
+  p_preview_asset_id uuid,
+  p_message text
+)
 returns uuid
 language plpgsql
 security definer
@@ -372,7 +412,7 @@ declare
   v_uid         uuid := (select auth.uid());
   v_owner       uuid;
   v_status      public.project_status;
-  v_preview_id  uuid;
+  v_latest_id   uuid;
   v_revision_id uuid;
   v_message     text := btrim(coalesce(p_message, ''));
 begin
@@ -407,14 +447,32 @@ begin
       using errcode = '23505';
   end if;
 
-  select a.id into v_preview_id
+  select a.id into v_latest_id
   from public.project_assets a
   where a.project_id = p_project_id and a.asset_type = 'PREVIEW_VIDEO'
   order by a.version desc
   limit 1;
 
+  if v_latest_id is null then
+    raise exception 'There is no preview to revise' using errcode = '42501';
+  end if;
+
+  if not exists (
+    select 1 from public.project_assets a
+    where a.id = p_preview_asset_id
+      and a.project_id = p_project_id
+      and a.asset_type = 'PREVIEW_VIDEO'
+  ) then
+    raise exception 'Preview not found' using errcode = '42501';
+  end if;
+
+  if p_preview_asset_id <> v_latest_id then
+    raise exception 'A newer preview has been delivered since this page was loaded'
+      using errcode = '40001';
+  end if;
+
   insert into public.project_revisions (project_id, user_id, preview_asset_id, message)
-  values (p_project_id, v_uid, v_preview_id, v_message)
+  values (p_project_id, v_uid, p_preview_asset_id, v_message)
   returning id into v_revision_id;
 
   perform set_config('avs.revision_request', 'on', true);
@@ -424,11 +482,11 @@ begin
 end;
 $$;
 
-revoke execute on function public.request_project_revision(uuid, text) from public;
-grant execute on function public.request_project_revision(uuid, text) to authenticated;
+revoke execute on function public.request_project_revision(uuid, uuid, text) from public;
+grant execute on function public.request_project_revision(uuid, uuid, text) to authenticated;
 
-comment on function public.request_project_revision(uuid, text) is
-  'Customer revision request against the latest preview. Creates the revision and moves the project to REVISION_REQUESTED, atomically.';
+comment on function public.request_project_revision(uuid, uuid, text) is
+  'Customer revision request against a NAMED preview. Refuses a superseded one. Creates the revision and moves the project to REVISION_REQUESTED, atomically.';
 
 -- -----------------------------------------------------------------------------
 -- 8. Row Level Security
