@@ -4,6 +4,8 @@ import { createClient } from '@/lib/supabase/server';
 import type {
   ProjectAssetRow,
   ProjectConsentRow,
+  ProjectPreviewApprovalRow,
+  ProjectRevisionRow,
   ProjectRow,
   ProjectStatusHistoryRow,
   VideoExperienceRow,
@@ -13,11 +15,19 @@ export interface ProjectWithExperience extends ProjectRow {
   video_experiences: Pick<VideoExperienceRow, 'id' | 'slug' | 'name' | 'category'> | null;
 }
 
+/** The admin queue also needs to know whose project it is. */
+export interface AdminQueueProject extends ProjectWithExperience {
+  profiles: { display_name: string | null } | null;
+}
+
 export interface ProjectDetail {
   project: ProjectWithExperience;
+  /** Reference images only. Delivery media is loaded through lib/data/deliveries.ts. */
   assets: ProjectAssetRow[];
   consents: ProjectConsentRow[];
   history: ProjectStatusHistoryRow[];
+  revisions: ProjectRevisionRow[];
+  approvals: ProjectPreviewApprovalRow[];
 }
 
 const PROJECT_SELECT = '*, video_experiences (id, slug, name, category)';
@@ -63,25 +73,39 @@ export async function getMyProjectDetail(
 
   if (error || !project) return null;
 
-  const [assetsResult, consentsResult, historyResult] = await Promise.all([
-    supabase
-      .from('project_assets')
-      .select('*')
-      .eq('project_id', projectId)
-      .order('created_at', { ascending: true }),
-    supabase.from('project_consents').select('*').eq('project_id', projectId),
-    supabase
-      .from('project_status_history')
-      .select('*')
-      .eq('project_id', projectId)
-      .order('created_at', { ascending: true }),
-  ]);
+  const [assetsResult, consentsResult, historyResult, revisionsResult, approvalsResult] =
+    await Promise.all([
+      supabase
+        .from('project_assets')
+        .select('*')
+        .eq('project_id', projectId)
+        .eq('asset_type', 'REFERENCE_IMAGE')
+        .order('created_at', { ascending: true }),
+      supabase.from('project_consents').select('*').eq('project_id', projectId),
+      supabase
+        .from('project_status_history')
+        .select('*')
+        .eq('project_id', projectId)
+        .order('created_at', { ascending: true }),
+      supabase
+        .from('project_revisions')
+        .select('*')
+        .eq('project_id', projectId)
+        .order('requested_at', { ascending: false }),
+      supabase
+        .from('project_preview_approvals')
+        .select('*')
+        .eq('project_id', projectId)
+        .order('approved_at', { ascending: false }),
+    ]);
 
   return {
     project: project as unknown as ProjectWithExperience,
     assets: assetsResult.data ?? [],
     consents: consentsResult.data ?? [],
     history: historyResult.data ?? [],
+    revisions: revisionsResult.data ?? [],
+    approvals: approvalsResult.data ?? [],
   };
 }
 
@@ -107,17 +131,19 @@ export async function getMyDraftProject(userId: string): Promise<ProjectRow | nu
  * is what grants the wider view. The caller must still have passed requireAdmin()
  * — RLS decides what is readable, the route guard decides who gets to ask.
  */
-export async function listAllProjectsForAdmin(): Promise<ProjectWithExperience[]> {
+export async function listAllProjectsForAdmin(): Promise<AdminQueueProject[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('projects')
-    .select(PROJECT_SELECT)
+    // profiles is readable here only because of the "admin can read all
+    // profiles" policy; for a customer this embed would come back empty.
+    .select(`${PROJECT_SELECT}, profiles (display_name)`)
     .neq('status', 'DRAFT')
     .order('submitted_at', { ascending: false, nullsFirst: false })
     .order('created_at', { ascending: false });
 
   if (error) throw new Error(`Could not load the project queue: ${error.message}`);
-  return (data ?? []) as unknown as ProjectWithExperience[];
+  return (data ?? []) as unknown as AdminQueueProject[];
 }
 
 export async function getProjectDetailForAdmin(projectId: string): Promise<ProjectDetail | null> {
@@ -131,24 +157,38 @@ export async function getProjectDetailForAdmin(projectId: string): Promise<Proje
 
   if (error || !project) return null;
 
-  const [assetsResult, consentsResult, historyResult] = await Promise.all([
-    supabase
-      .from('project_assets')
-      .select('*')
-      .eq('project_id', projectId)
-      .order('created_at', { ascending: true }),
-    supabase.from('project_consents').select('*').eq('project_id', projectId),
-    supabase
-      .from('project_status_history')
-      .select('*')
-      .eq('project_id', projectId)
-      .order('created_at', { ascending: true }),
-  ]);
+  const [assetsResult, consentsResult, historyResult, revisionsResult, approvalsResult] =
+    await Promise.all([
+      supabase
+        .from('project_assets')
+        .select('*')
+        .eq('project_id', projectId)
+        .eq('asset_type', 'REFERENCE_IMAGE')
+        .order('created_at', { ascending: true }),
+      supabase.from('project_consents').select('*').eq('project_id', projectId),
+      supabase
+        .from('project_status_history')
+        .select('*')
+        .eq('project_id', projectId)
+        .order('created_at', { ascending: true }),
+      supabase
+        .from('project_revisions')
+        .select('*')
+        .eq('project_id', projectId)
+        .order('requested_at', { ascending: false }),
+      supabase
+        .from('project_preview_approvals')
+        .select('*')
+        .eq('project_id', projectId)
+        .order('approved_at', { ascending: false }),
+    ]);
 
   return {
     project: project as unknown as ProjectWithExperience,
     assets: assetsResult.data ?? [],
     consents: consentsResult.data ?? [],
     history: historyResult.data ?? [],
+    revisions: revisionsResult.data ?? [],
+    approvals: approvalsResult.data ?? [],
   };
 }

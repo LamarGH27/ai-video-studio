@@ -7,9 +7,13 @@ This repository is the technical foundation and first MVP: a premium public site
 accounts, a multi-step creative brief with private reference-image upload,
 explicit consent capture, a customer dashboard, and a minimal admin queue.
 
-**The MVP does not generate video, take payment or send email.** Those are
-deliberate omissions with clean extension points, not oversights — see
-[Known limitations](#known-limitations).
+It now covers the full delivery lifecycle: an administrator uploads previews,
+the customer approves them or requests changes, and the final film is delivered
+through authorised, short-lived links.
+
+**Production is manual, and the MVP does not generate video, take payment or
+send email.** Those are deliberate omissions with clean extension points, not
+oversights — see [Known limitations](#known-limitations).
 
 ---
 
@@ -139,8 +143,16 @@ in order:
 3. `20260101000200_storage.sql` — private buckets and their storage policies
 4. `20260101000300_seed_reference_data.sql` — experience catalogue and placeholder portfolio
 5. `20260101000400_status_transition_guard.sql` — database-level workflow enforcement
+6. `20260101000500_add_finalising_status.sql` — the `FINALISING` status
+7. `20260101000600_delivery_workflow.sql` — previews, revisions, approvals, delivery RLS
 
-Migrations 3 and 4 are idempotent and safe to re-run. 1, 2 and 5 are not.
+Migrations 3, 4, 6 and 7 are idempotent and safe to re-run. 1, 2 and 5 are not.
+
+**Migrations 1–5 are applied history and must never be edited.** 6 and 7 are
+additive, so an existing project upgrades with `npx supabase db push` — no
+reset. Migration 6 deliberately contains a single statement: PostgreSQL refuses
+to use a new enum value in the transaction that added it, so `FINALISING` must
+commit before migration 7 can reference it.
 
 To confirm they still apply cleanly from scratch before you touch a real project:
 
@@ -207,6 +219,10 @@ Then open <http://localhost:3000>.
 Typical first run-through: `/` → `/portfolio` → **Create My Video** → choose an
 experience → write a brief → sign up → upload a reference image → consent →
 **Submit Project** → land on the project page in your dashboard.
+
+Then, as an admin (see step 5 above): open `/admin`, follow the **Next
+production action** through asset review and production, upload a preview, and
+watch the customer side gain **Approve Preview** and **Request Revision**.
 
 ---
 
@@ -397,7 +413,14 @@ version:
 - **The production workflow is enforced by the database**, not only by the
   buttons the admin UI renders: a trigger rejects any status transition outside
   the documented table, so no one can drive a project straight from `SUBMITTED`
-  to `COMPLETED`.
+  to `COMPLETED`. A project cannot claim a preview it does not have, nor be
+  completed without a final.
+- **Only staff can create delivery media**, and **only the owning customer can
+  approve or reject a preview** — each through a single atomic database function
+  that re-checks the caller, not through a status update anyone could craft.
+- **Delivery videos are private too.** They are reached only through
+  `/api/deliveries/{assetId}`, which re-authorises on every request and redirects
+  to a short-lived signed URL that is never cached.
 - **There is no secret Supabase key** anywhere in the application.
 
 All of the above is asserted mechanically, not just described — see
@@ -412,10 +435,11 @@ Deliberate, and documented so nobody mistakes them for finished work:
 - No AI video generation. No provider is integrated or referenced.
 - No payments. `/pricing` is clearly marked placeholder content.
 - No transactional email beyond Supabase Auth's own messages.
-- No preview or final delivery yet. The schema (`asset_type`, the
-  `project-deliveries` bucket) is shaped for it; nothing writes to it.
-- No revision request workflow. `REVISION_REQUESTED` exists as a status only.
-- The admin area is intentionally minimal: queue, project detail, status changes.
+- Video generation is manual: an administrator produces the film externally and
+  uploads it. Nothing here is automated.
+- No notification when a preview is ready or a revision arrives — both parties
+  currently discover it by looking. Transactional email is the next milestone.
+- A revision is a single message, not a conversation thread.
 - `types/database.ts` is hand-maintained. Once a project is linked, regenerate it
   with `npx supabase gen types typescript --linked > types/database.ts`.
 - Upload content type is verified against Storage metadata, not by inspecting

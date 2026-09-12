@@ -1,7 +1,11 @@
 import {
+  isAcceptedDeliveryMimeType,
   isAcceptedImageMimeType,
+  PROJECT_DELIVERIES_BUCKET,
   REFERENCE_IMAGES_BUCKET,
+  type AcceptedDeliveryMimeType,
   type AcceptedImageMimeType,
+  type DeliveryAssetType,
 } from './config';
 
 /**
@@ -82,9 +86,69 @@ export function buildReferenceImagePath({
   return `${userId}/${projectId}/${id}.${extensionForMimeType(mimeType)}`;
 }
 
+const DELIVERY_EXTENSION_BY_MIME: Record<AcceptedDeliveryMimeType, string> = {
+  'video/mp4': 'mp4',
+  'video/webm': 'webm',
+};
+
+export interface DeliveryPathInput {
+  /** The CUSTOMER who owns the project — never the uploading administrator. */
+  ownerId: string;
+  projectId: string;
+  assetType: DeliveryAssetType;
+  /** 1-based delivery sequence. Appears in the name so objects are self-describing. */
+  version: number;
+  mimeType: string;
+  /** Injectable for deterministic tests; defaults to crypto.randomUUID(). */
+  objectId?: string;
+}
+
+/**
+ * Object name for a preview or final video.
+ *
+ *     {owner_id}/{project_id}/{preview|final}-v{n}-{uuid}.{ext}
+ *
+ * The leading folder is the CUSTOMER's uid, not the admin's, for two reasons:
+ * the customer's storage policy grants read on their own folder, and it keeps
+ * everything belonging to one customer under one prefix.
+ *
+ * The version is in the name and the uuid makes it unique, so uploading
+ * "Preview 2" can never overwrite "Preview 1" — even if the same administrator
+ * uploads the same file twice in the same second.
+ */
+export function buildDeliveryPath({
+  ownerId,
+  projectId,
+  assetType,
+  version,
+  mimeType,
+  objectId,
+}: DeliveryPathInput): string {
+  if (!UUID_PATTERN.test(ownerId)) {
+    throw new Error('buildDeliveryPath: ownerId must be a UUID');
+  }
+  if (!UUID_PATTERN.test(projectId)) {
+    throw new Error('buildDeliveryPath: projectId must be a UUID');
+  }
+  if (!Number.isInteger(version) || version < 1) {
+    throw new Error('buildDeliveryPath: version must be a positive integer');
+  }
+  if (!isAcceptedDeliveryMimeType(mimeType)) {
+    throw new Error(`Unsupported delivery MIME type: ${mimeType}`);
+  }
+
+  const id = objectId ?? crypto.randomUUID();
+  if (!UUID_PATTERN.test(id)) {
+    throw new Error('buildDeliveryPath: objectId must be a UUID');
+  }
+
+  const kind = assetType === 'PREVIEW_VIDEO' ? 'preview' : 'final';
+  return `${ownerId}/${projectId}/${kind}-v${version}-${id}.${DELIVERY_EXTENSION_BY_MIME[mimeType]}`;
+}
+
 /** Guards against an asset row pointing anywhere other than the caller's own folder. */
 export function isPathOwnedBy(path: string, userId: string): boolean {
   return path.startsWith(`${userId}/`);
 }
 
-export { REFERENCE_IMAGES_BUCKET };
+export { PROJECT_DELIVERIES_BUCKET, REFERENCE_IMAGES_BUCKET };

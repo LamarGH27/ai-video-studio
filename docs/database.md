@@ -13,6 +13,18 @@ Apply in filename order:
 | `20260101000200_storage.sql`                 | private buckets and storage policies               | yes         |
 | `20260101000300_seed_reference_data.sql`     | experiences and placeholder portfolio              | yes         |
 | `20260101000400_status_transition_guard.sql` | workflow enforcement + audit trail ordering        | no          |
+| `20260101000500_add_finalising_status.sql`   | the `FINALISING` enum value, and nothing else      | yes         |
+| `20260101000600_delivery_workflow.sql`       | previews, revisions, approvals, delivery RLS       | yes         |
+
+> **Migrations 000000–000400 are applied history and must never be edited.**
+> 000500 and 000600 are additive; `npx supabase db push` upgrades an existing
+> project without a reset.
+>
+> **Why 000500 contains one statement.** PostgreSQL refuses to _use_ a new enum
+> value in the transaction that added it, and each migration file is applied in
+> its own transaction. `ALTER TYPE … ADD VALUE 'FINALISING'` therefore has to
+> commit before 000600, which references it in function bodies and policies, can
+> run at all. A unit test asserts that file still contains exactly one statement.
 
 ---
 
@@ -49,14 +61,15 @@ profiles ──────1:N──────► projects ──────1
 
 ## Enums
 
-| Enum                  | Values                                                                                                                  |
-| --------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `user_role`           | `customer`, `admin`                                                                                                     |
-| `project_status`      | `DRAFT`, `SUBMITTED`, `ASSETS_REVIEW`, `IN_PRODUCTION`, `PREVIEW_READY`, `REVISION_REQUESTED`, `COMPLETED`, `CANCELLED` |
-| `project_orientation` | `VERTICAL_9_16`, `LANDSCAPE_16_9`, `SQUARE_1_1`                                                                         |
-| `asset_type`          | `REFERENCE_IMAGE`, `PREVIEW_VIDEO`, `FINAL_VIDEO`                                                                       |
-| `consent_type`        | `HAS_LIKENESS_PERMISSION`, `AI_PROCESSING_CONSENT`, `PORTFOLIO_PERMISSION`                                              |
-| `experience_category` | `LUXURY_LIFESTYLE`, `FASHION`, `CINEMATIC`, `SOCIAL_MEDIA`, `CELEBRATION`, `TRAVEL`, `EXECUTIVE`, `BESPOKE`             |
+| Enum                  | Values                                                                                                                                |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `user_role`           | `customer`, `admin`                                                                                                                   |
+| `project_status`      | `DRAFT`, `SUBMITTED`, `ASSETS_REVIEW`, `IN_PRODUCTION`, `PREVIEW_READY`, `FINALISING`, `REVISION_REQUESTED`, `COMPLETED`, `CANCELLED` |
+| `revision_status`     | `OPEN`, `RESOLVED`                                                                                                                    |
+| `project_orientation` | `VERTICAL_9_16`, `LANDSCAPE_16_9`, `SQUARE_1_1`                                                                                       |
+| `asset_type`          | `REFERENCE_IMAGE`, `PREVIEW_VIDEO`, `FINAL_VIDEO`                                                                                     |
+| `consent_type`        | `HAS_LIKENESS_PERMISSION`, `AI_PROCESSING_CONSENT`, `PORTFOLIO_PERMISSION`                                                            |
+| `experience_category` | `LUXURY_LIFESTYLE`, `FASHION`, `CINEMATIC`, `SOCIAL_MEDIA`, `CELEBRATION`, `TRAVEL`, `EXECUTIVE`, `BESPOKE`                           |
 
 `PREVIEW_VIDEO` and `FINAL_VIDEO` are unused by the MVP. They exist now so
 delivery can be added without a destructive migration.
@@ -204,18 +217,19 @@ the database would refuse it regardless.
 
 Files attached to a project.
 
-| Column              | Type          | Notes                                                   |
-| ------------------- | ------------- | ------------------------------------------------------- |
-| `id`                | `uuid` PK     |                                                         |
-| `project_id`        | `uuid`        | FK → `projects`                                         |
-| `user_id`           | `uuid`        | FK → `profiles`. Denormalised owner.                    |
-| `asset_type`        | `asset_type`  | MVP writes `REFERENCE_IMAGE` only                       |
-| `storage_bucket`    | `text`        | `reference-images`                                      |
-| `storage_path`      | `text`        | `{user_id}/{project_id}/{uuid}.{ext}`                   |
-| `mime_type`         | `text`        | Read back from Storage, not from the browser            |
-| `original_filename` | `text` null   | Sanitised, for support only. **Never used for a path.** |
-| `file_size`         | `bigint`      | > 0. Read back from Storage.                            |
-| `created_at`        | `timestamptz` |                                                         |
+| Column              | Type          | Notes                                                                                                                         |
+| ------------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `id`                | `uuid` PK     |                                                                                                                               |
+| `project_id`        | `uuid`        | FK → `projects`                                                                                                               |
+| `user_id`           | `uuid`        | FK → `profiles`. Denormalised owner.                                                                                          |
+| `asset_type`        | `asset_type`  | MVP writes `REFERENCE_IMAGE` only                                                                                             |
+| `storage_bucket`    | `text`        | `reference-images`                                                                                                            |
+| `storage_path`      | `text`        | `{user_id}/{project_id}/{uuid}.{ext}`                                                                                         |
+| `mime_type`         | `text`        | Read back from Storage, not from the browser                                                                                  |
+| `original_filename` | `text` null   | Sanitised, for support only. **Never used for a path.**                                                                       |
+| `version`           | `integer`     | Delivery sequence per `(project_id, asset_type)`. Always 1 for a reference image. Assigned by a trigger, never by the caller. |
+| `file_size`         | `bigint`      | > 0. Read back from Storage.                                                                                                  |
+| `created_at`        | `timestamptz` |                                                                                                                               |
 
 Unique on `(storage_bucket, storage_path)` — one row per object.
 
@@ -226,7 +240,20 @@ the policy on its own columns.
 **RLS intent** — a customer reads their own assets and may attach or remove
 **reference images only**, only on their own **draft**. Delivery assets are staff
 output and have no customer write path. Asset rows are immutable once written
-(no UPDATE policy).
+(no UPDATE policy), so a new preview is always a new row and a new object —
+nothing is ever overwritten.
+
+A partial unique index on `(project_id, asset_type, version)` covers the two
+delivery types only; reference images are many-per-project and all carry
+version 1.
+
+| Policy                                          | Op     | Rule                                                                                                  |
+| ----------------------------------------------- | ------ | ----------------------------------------------------------------------------------------------------- |
+| `project_assets: admin can add delivery assets` | INSERT | `is_admin()` + type is a delivery + bucket is `project-deliveries` + `user_id` is the project's owner |
+
+Note the last condition: a delivery row is owned by the **customer**, not by the
+administrator who uploaded it. That is what the customer's read policy and the
+storage path both key on.
 
 | Policy                                                        | Op     | Rule                                                                      |
 | ------------------------------------------------------------- | ------ | ------------------------------------------------------------------------- |
@@ -295,6 +322,52 @@ would have no deterministic order.
 | ------------------------------------------------------------ | ------ | ------------------------------------ |
 | `project_status_history: owner can read own project history` | SELECT | parent project owned by `auth.uid()` |
 | `project_status_history: admin can read all history`         | SELECT | `is_admin()`                         |
+
+---
+
+### `project_revisions`
+
+A customer's request for changes to a preview.
+
+| Column                      | Type               | Notes                                                                   |
+| --------------------------- | ------------------ | ----------------------------------------------------------------------- |
+| `id`                        | `uuid` PK          |                                                                         |
+| `project_id`                | `uuid`             | FK → `projects`, cascade                                                |
+| `user_id`                   | `uuid`             | FK → `profiles`. Denormalised owner.                                    |
+| `preview_asset_id`          | `uuid` null        | Which preview it concerns. `ON DELETE SET NULL` so the record survives. |
+| `message`                   | `text`             | 20–2000 chars after trimming, `CHECK`ed                                 |
+| `status`                    | `revision_status`  | `OPEN` or `RESOLVED`                                                    |
+| `requested_at`              | `timestamptz`      |                                                                         |
+| `resolved_at`               | `timestamptz` null | Tied to `status` by a `CHECK`                                           |
+| `created_at` / `updated_at` | `timestamptz`      |                                                                         |
+
+A partial unique index on `(project_id) WHERE status = 'OPEN'` allows **one open
+request at a time** — a second would make "which revision does this preview
+answer?" unanswerable.
+
+**RLS intent** — readable by its owner and by staff. **There is no INSERT,
+UPDATE or DELETE policy at all.** The only way to create one is
+`request_project_revision()`, and the only way to resolve one is the
+`projects_resolve_revisions` trigger. Neither a customer nor an admin can edit
+or erase this history through the API.
+
+---
+
+### `project_preview_approvals`
+
+Evidence that a customer approved a specific preview.
+
+| Column             | Type          | Notes                      |
+| ------------------ | ------------- | -------------------------- |
+| `id`               | `uuid` PK     |                            |
+| `project_id`       | `uuid`        | FK → `projects`, cascade   |
+| `user_id`          | `uuid`        | FK → `profiles`            |
+| `preview_asset_id` | `uuid` null   | The exact version approved |
+| `approved_at`      | `timestamptz` |                            |
+| `created_at`       | `timestamptz` |                            |
+
+**RLS intent** — identical to revisions: owner and admin may read, nobody may
+write. Rows come only from `approve_preview()`.
 
 ---
 
@@ -371,6 +444,11 @@ The application enforces a lower 10 MB per-file limit; the bucket ceiling is the
 backstop.
 
 Object layout in both buckets: `{user_id}/{project_id}/{generated_filename}`.
+
+For deliveries the generated name is `{preview|final}-v{n}-{uuid}.{ext}`. The
+leading folder is the **customer's** uid even though an administrator uploads
+it, because that is what the customer's read policy checks. The uuid — not the
+version — is what guarantees a new preview can never overwrite an earlier one.
 
 ### Storage policies on `storage.objects`
 

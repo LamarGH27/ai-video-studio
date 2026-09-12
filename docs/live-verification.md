@@ -94,8 +94,16 @@ this order, one at a time, checking each succeeds before the next:
 3. `supabase/migrations/20260101000200_storage.sql`
 4. `supabase/migrations/20260101000300_seed_reference_data.sql`
 5. `supabase/migrations/20260101000400_status_transition_guard.sql`
+6. `supabase/migrations/20260101000500_add_finalising_status.sql`
+7. `supabase/migrations/20260101000600_delivery_workflow.sql`
 
-Files 3 and 4 are idempotent and safe to re-run. 1, 2 and 5 are not.
+Files 3, 4, 6 and 7 are idempotent and safe to re-run. 1, 2 and 5 are not.
+
+**Run 6 and 7 as separate statements, in that order.** PostgreSQL refuses to use
+a new enum value in the transaction that added it, so `FINALISING` must be
+committed before migration 7 references it. `npx supabase db push` handles this
+by applying each file in its own transaction; pasting both into one SQL Editor
+tab would not.
 
 ### Then confirm the result
 
@@ -114,6 +122,20 @@ select id, public, file_size_limit, allowed_mime_types from storage.buckets;
 -- 8 experiences, 8 portfolio items.
 select (select count(*) from public.video_experiences where active) as experiences,
        (select count(*) from public.portfolio_items where active)   as portfolio;
+
+-- Milestone 2A: FINALISING exists, and the delivery objects are in place.
+select exists (
+  select 1 from pg_enum e join pg_type t on t.oid = e.enumtypid
+  where t.typname = 'project_status' and e.enumlabel = 'FINALISING'
+) as has_finalising;
+
+select count(*) as delivery_tables from pg_class
+where relnamespace = 'public'::regnamespace
+  and relname in ('project_revisions', 'project_preview_approvals');   -- expect 2
+
+select count(*) as delivery_rpcs from pg_proc
+where pronamespace = 'public'::regnamespace
+  and proname in ('approve_preview', 'request_project_revision');      -- expect 2
 ```
 
 If `public` is `true` for either bucket, stop and fix it before uploading
@@ -301,8 +323,10 @@ says `15 passed, 11 skipped` has proved nothing new: it means the secrets were
 not reaching the specs. The target is:
 
 ```
-26 passed (…)
+28 passed (…)
 ```
+
+(26 before Milestone 2A; the delivery lifecycle added two.)
 
 Similarly, `npm run verify:live` must end with:
 
@@ -439,15 +463,18 @@ Storage objects do **not** cascade — `storage.objects` has no foreign key into
 `public.projects`. After the delete above, sweep the orphans:
 
 ```sql
--- Inspect first.
-select o.name, o.created_at, o.metadata->>'size' as bytes
+-- Inspect first. Covers both buckets.
+select o.bucket_id, o.name, o.created_at, o.metadata->>'size' as bytes
 from storage.objects o
 left join public.project_assets a
   on a.storage_bucket = o.bucket_id and a.storage_path = o.name
-where o.bucket_id = 'reference-images'
+where o.bucket_id in ('reference-images', 'project-deliveries')
   and a.id is null
 order by o.created_at;
 ```
+
+Revisions and approvals cascade away with their project, so the delete above
+clears them too — there is no separate cleanup for either.
 
 Delete them from **Storage** in the dashboard once you are satisfied the list is
 only test data. (See `docs/architecture.md` §6 for why orphans exist and how the

@@ -15,9 +15,12 @@ export type ProjectStatus =
   | 'ASSETS_REVIEW'
   | 'IN_PRODUCTION'
   | 'PREVIEW_READY'
+  | 'FINALISING'
   | 'REVISION_REQUESTED'
   | 'COMPLETED'
   | 'CANCELLED';
+
+export type RevisionStatus = 'OPEN' | 'RESOLVED';
 
 export type ProjectOrientation = 'VERTICAL_9_16' | 'LANDSCAPE_16_9' | 'SQUARE_1_1';
 
@@ -86,6 +89,30 @@ export type ProjectAssetRow = {
   mime_type: string;
   original_filename: string | null;
   file_size: number;
+  /** Delivery sequence within (project_id, asset_type). Always 1 for a reference image. */
+  version: number;
+  created_at: string;
+};
+
+export type ProjectRevisionRow = {
+  id: string;
+  project_id: string;
+  user_id: string;
+  preview_asset_id: string | null;
+  message: string;
+  status: RevisionStatus;
+  requested_at: string;
+  resolved_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProjectPreviewApprovalRow = {
+  id: string;
+  project_id: string;
+  user_id: string;
+  preview_asset_id: string | null;
+  approved_at: string;
   created_at: string;
 };
 
@@ -246,6 +273,55 @@ export interface Database {
           },
         ];
       };
+      project_revisions: {
+        Row: ProjectRevisionRow;
+        Insert: Insertable<ProjectRevisionRow, 'project_id' | 'user_id' | 'message'>;
+        Update: Partial<ProjectRevisionRow>;
+        Relationships: [
+          {
+            foreignKeyName: 'project_revisions_project_id_fkey';
+            columns: ['project_id'];
+            isOneToOne: false;
+            referencedRelation: 'projects';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'project_revisions_user_id_fkey';
+            columns: ['user_id'];
+            isOneToOne: false;
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'project_revisions_preview_asset_id_fkey';
+            columns: ['preview_asset_id'];
+            isOneToOne: false;
+            referencedRelation: 'project_assets';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      project_preview_approvals: {
+        Row: ProjectPreviewApprovalRow;
+        Insert: Insertable<ProjectPreviewApprovalRow, 'project_id' | 'user_id'>;
+        Update: Partial<ProjectPreviewApprovalRow>;
+        Relationships: [
+          {
+            foreignKeyName: 'project_preview_approvals_project_id_fkey';
+            columns: ['project_id'];
+            isOneToOne: false;
+            referencedRelation: 'projects';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'project_preview_approvals_user_id_fkey';
+            columns: ['user_id'];
+            isOneToOne: false;
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       portfolio_items: {
         Row: PortfolioItemRow;
         Insert: Insertable<PortfolioItemRow, 'title' | 'slug' | 'category'>;
@@ -264,6 +340,13 @@ export interface Database {
     Views: { [_ in never]: never };
     Functions: {
       is_admin: { Args: Record<string, never>; Returns: boolean };
+      // Atomic customer decisions. Each validates auth.uid(), ownership and the
+      // expected current status inside the database — see migration 000600.
+      approve_preview: { Args: { p_project_id: string }; Returns: string };
+      request_project_revision: {
+        Args: { p_project_id: string; p_message: string };
+        Returns: string;
+      };
     };
     Enums: {
       user_role: UserRole;
@@ -272,6 +355,7 @@ export interface Database {
       asset_type: AssetType;
       consent_type: ConsentType;
       experience_category: ExperienceCategory;
+      revision_status: RevisionStatus;
     };
     CompositeTypes: { [_ in never]: never };
   };

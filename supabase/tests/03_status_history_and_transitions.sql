@@ -63,7 +63,21 @@ select avs_test.attempt('Transition', 'Admin SUBMITTED→ASSETS_REVIEW (permitte
 select avs_test.attempt('Transition', 'Admin ASSETS_REVIEW→IN_PRODUCTION (permitted)', 'ALLOWED',
   $$ update public.projects set status = 'IN_PRODUCTION' where id = avs_test.id('a_submitted') $$);
 
-select avs_test.attempt('Transition', 'Admin IN_PRODUCTION→PREVIEW_READY (permitted)', 'ALLOWED',
+-- From 20260101000600 onwards a preview must exist before a project can claim
+-- to have one. The transition is permitted by the workflow table and still
+-- refused, because the invariant is a separate check.
+select avs_test.attempt('Transition', 'Admin IN_PRODUCTION→PREVIEW_READY with no preview uploaded', 'DENIED',
+  $$ update public.projects set status = 'PREVIEW_READY' where id = avs_test.id('a_submitted') $$);
+
+select avs_test.attempt('Transition', 'Admin uploads a preview', 'ALLOWED',
+  $$ insert into public.project_assets
+       (project_id, user_id, asset_type, storage_bucket, storage_path, mime_type, file_size)
+     values (avs_test.id('a_submitted'), avs_test.id('customer_a'), 'PREVIEW_VIDEO',
+             'project-deliveries',
+             'aaaaaaaa-0000-4000-8000-00000000000a/11111111-0000-4000-8000-000000000001/preview-v1.mp4',
+             'video/mp4', 4000000) $$);
+
+select avs_test.attempt('Transition', 'Admin IN_PRODUCTION→PREVIEW_READY once a preview exists', 'ALLOWED',
   $$ update public.projects set status = 'PREVIEW_READY' where id = avs_test.id('a_submitted') $$);
 
 -- The guard added in 20260101000400: skipping stages is refused by the database,
@@ -77,7 +91,29 @@ select avs_test.attempt('Transition', 'Admin PREVIEW_READY→DRAFT (would re-ope
 select avs_test.attempt('Transition', 'Admin B: SUBMITTED→COMPLETED (skips production)', 'DENIED',
   $$ update public.projects set status = 'COMPLETED' where id = avs_test.id('b_submitted') $$);
 
-select avs_test.attempt('Transition', 'Admin PREVIEW_READY→COMPLETED (permitted)', 'ALLOWED',
+-- Stricter than Milestone 1.5, where this was permitted: completion must now go
+-- through the customer's approval and FINALISING, so the shortcut is gone.
+select avs_test.attempt('Transition', 'Admin PREVIEW_READY→COMPLETED (skips customer approval)', 'DENIED',
+  $$ update public.projects set status = 'COMPLETED' where id = avs_test.id('a_submitted') $$);
+
+-- The rest of the lifecycle: approval is the customer's, completion needs a final.
+select avs_test.become('customer_a');
+select avs_test.attempt('Transition', 'Customer approves the preview (PREVIEW_READY→FINALISING)', 'ALLOWED',
+  $$ select public.approve_preview(avs_test.id('a_submitted')) $$);
+
+select avs_test.become('admin');
+select avs_test.attempt('Transition', 'Admin FINALISING→COMPLETED with no final video', 'DENIED',
+  $$ update public.projects set status = 'COMPLETED' where id = avs_test.id('a_submitted') $$);
+
+select avs_test.attempt('Transition', 'Admin uploads the final video', 'ALLOWED',
+  $$ insert into public.project_assets
+       (project_id, user_id, asset_type, storage_bucket, storage_path, mime_type, file_size)
+     values (avs_test.id('a_submitted'), avs_test.id('customer_a'), 'FINAL_VIDEO',
+             'project-deliveries',
+             'aaaaaaaa-0000-4000-8000-00000000000a/11111111-0000-4000-8000-000000000001/final-v1.mp4',
+             'video/mp4', 8000000) $$);
+
+select avs_test.attempt('Transition', 'Admin FINALISING→COMPLETED once a final exists', 'ALLOWED',
   $$ update public.projects set status = 'COMPLETED' where id = avs_test.id('a_submitted') $$);
 
 select avs_test.attempt('Transition', 'Admin reopens a COMPLETED project (final status)', 'DENIED',
@@ -94,7 +130,7 @@ declare
   -- on a_draft, which is the project a customer actually submits.
   expected text := 'NULL>SUBMITTED, SUBMITTED>ASSETS_REVIEW, '
                 || 'ASSETS_REVIEW>IN_PRODUCTION, IN_PRODUCTION>PREVIEW_READY, '
-                || 'PREVIEW_READY>COMPLETED';
+                || 'PREVIEW_READY>FINALISING, FINALISING>COMPLETED';
   ok boolean;
 begin
   select string_agg(

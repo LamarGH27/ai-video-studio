@@ -11,6 +11,11 @@ import { ReferenceGallery } from '@/features/dashboard/reference-gallery';
 import { requireUser } from '@/lib/auth/session';
 import { getMyProjectDetail } from '@/lib/data/projects';
 import { signReferenceImages } from '@/lib/data/assets';
+import { latestOfType, listDeliveryAssets } from '@/lib/data/deliveries';
+import { DeliveryVideoPlayer } from '@/features/delivery/video-player';
+import { PreviewDecision } from '@/features/delivery/preview-decision';
+import { RevisionHistory } from '@/features/delivery/revision-history';
+import { Download } from 'lucide-react';
 import { consentLabel } from '@/lib/consent/definitions';
 import { orientationLabel, statusDescription } from '@/lib/projects/status';
 import { formatDate, formatDateTime } from '@/lib/utils';
@@ -41,8 +46,18 @@ export default async function ProjectDetailPage({
   const detail = await getMyProjectDetail(user.id, id);
   if (!detail) notFound();
 
-  const { project, assets, consents, history } = detail;
+  const { project, assets, consents, history, revisions } = detail;
   const signedAssets = await signReferenceImages(assets);
+
+  // Delivery media. RLS confines this to the caller's own project, and the
+  // player streams through /api/deliveries/[assetId], which re-authorises every
+  // request rather than embedding a signed URL in the HTML.
+  const deliveries = await listDeliveryAssets(project.id);
+  const latestPreview = latestOfType(deliveries, 'PREVIEW_VIDEO');
+  const finalVideo = latestOfType(deliveries, 'FINAL_VIDEO');
+  const previousPreviews = deliveries.filter(
+    (asset) => asset.assetType === 'PREVIEW_VIDEO' && asset.id !== latestPreview?.id,
+  );
   const experienceName = project.video_experiences?.name ?? 'Custom concept';
 
   const facts: { label: string; value: string }[] = [
@@ -91,6 +106,72 @@ export default async function ProjectDetailPage({
           </p>
         </div>
       </header>
+
+      {/* ------------------------------------------------------- Delivery */}
+      {project.status === 'COMPLETED' && finalVideo ? (
+        <section aria-labelledby="final-heading" className="mt-12">
+          <h2 id="final-heading" className="display-heading text-2xl">
+            Your film is ready.
+          </h2>
+          <p className="mt-3 max-w-xl leading-relaxed text-bone-400">
+            Delivered {formatDate(finalVideo.createdAt)}. Yours to download and keep.
+          </p>
+
+          <DeliveryVideoPlayer asset={finalVideo} className="mt-6" />
+
+          <div className="mt-6">
+            <Button asChild variant="accent" size="lg">
+              {/* A plain link, not fetch(): the route authorises, then redirects
+                  to a short-lived signed URL with Content-Disposition set. */}
+              <a href={`/api/deliveries/${finalVideo.id}?download=1`}>
+                <Download aria-hidden="true" />
+                Download Final Video
+              </a>
+            </Button>
+          </div>
+        </section>
+      ) : null}
+
+      {project.status === 'PREVIEW_READY' && latestPreview ? (
+        <section aria-labelledby="preview-heading" className="mt-12 space-y-8">
+          <div>
+            <h2 id="preview-heading" className="display-heading text-2xl">
+              Preview {latestPreview.version}
+            </h2>
+            <p className="mt-3 max-w-xl leading-relaxed text-bone-400">
+              Uploaded {formatDate(latestPreview.createdAt)}.
+            </p>
+            <DeliveryVideoPlayer asset={latestPreview} className="mt-6" />
+          </div>
+
+          <PreviewDecision projectId={project.id} />
+        </section>
+      ) : null}
+
+      {project.status === 'FINALISING' && latestPreview ? (
+        <section aria-labelledby="finalising-heading" className="mt-12">
+          <h2 id="finalising-heading" className="display-heading text-2xl">
+            Finalising your video.
+          </h2>
+          <p className="mt-3 max-w-xl leading-relaxed text-bone-400">
+            You approved Preview {latestPreview.version}. We are preparing the final cut — nothing
+            further is needed from you.
+          </p>
+          <DeliveryVideoPlayer asset={latestPreview} className="mt-6" />
+        </section>
+      ) : null}
+
+      {project.status === 'REVISION_REQUESTED' && latestPreview ? (
+        <section aria-labelledby="revision-pending-heading" className="mt-12">
+          <h2 id="revision-pending-heading" className="display-heading text-2xl">
+            Your changes are with the team.
+          </h2>
+          <p className="mt-3 max-w-xl leading-relaxed text-bone-400">
+            We are reworking Preview {latestPreview.version}. You will see a new preview here when
+            it is ready.
+          </p>
+        </section>
+      ) : null}
 
       <div className="mt-14 grid gap-12 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <div className="space-y-12">
@@ -155,6 +236,44 @@ export default async function ProjectDetailPage({
                   </div>
                 ) : null}
               </div>
+            </section>
+          ) : null}
+
+          {revisions.length > 0 ? (
+            <section aria-labelledby="revisions-heading">
+              <h2
+                id="revisions-heading"
+                className="text-sm font-medium tracking-wide text-bone-400 uppercase"
+              >
+                Changes you have requested
+              </h2>
+              <div className="mt-4">
+                <RevisionHistory revisions={revisions} />
+              </div>
+            </section>
+          ) : null}
+
+          {previousPreviews.length > 0 ? (
+            <section aria-labelledby="earlier-previews-heading">
+              <h2
+                id="earlier-previews-heading"
+                className="text-sm font-medium tracking-wide text-bone-400 uppercase"
+              >
+                Earlier previews
+              </h2>
+              <p className="mt-2 text-xs text-bone-400/70">
+                Kept so you can see how the film changed. The current cut is above.
+              </p>
+              <ul className="mt-4 space-y-6">
+                {previousPreviews.map((preview) => (
+                  <li key={preview.id}>
+                    <p className="text-bone-300 text-sm">
+                      Preview {preview.version} · {formatDate(preview.createdAt)}
+                    </p>
+                    <DeliveryVideoPlayer asset={preview} className="mt-3" />
+                  </li>
+                ))}
+              </ul>
             </section>
           ) : null}
 

@@ -19,22 +19,23 @@ $$;
 -- -----------------------------------------------------------------------------
 -- Tables
 -- -----------------------------------------------------------------------------
-select avs_test.expect('Schema', 'All 7 public tables exist', '7',
+select avs_test.expect('Schema', 'All 9 public tables exist', '9',
   (select count(*)::text from pg_class
    where relnamespace = 'public'::regnamespace and relkind = 'r'
      and relname in ('profiles','video_experiences','projects','project_assets',
-                     'project_consents','project_status_history','portfolio_items')));
+                     'project_consents','project_status_history','portfolio_items',
+                     'project_revisions','project_preview_approvals')));
 
 -- -----------------------------------------------------------------------------
 -- Enums
 -- -----------------------------------------------------------------------------
-select avs_test.expect('Schema', 'All 6 enums exist', '6',
+select avs_test.expect('Schema', 'All 7 enums exist', '7',
   (select count(*)::text from pg_type
    where typnamespace = 'public'::regnamespace and typtype = 'e'
      and typname in ('user_role','project_status','project_orientation',
-                     'asset_type','consent_type','experience_category')));
+                     'asset_type','consent_type','experience_category','revision_status')));
 
-select avs_test.expect('Schema', 'project_status has all 8 values', '8',
+select avs_test.expect('Schema', 'project_status has all 9 values', '9',
   (select count(*)::text from pg_enum e join pg_type t on t.oid = e.enumtypid
    where t.typname = 'project_status'));
 
@@ -77,13 +78,16 @@ select avs_test.expect('RLS', 'project_assets rows are immutable (no UPDATE poli
 -- -----------------------------------------------------------------------------
 -- Functions and triggers
 -- -----------------------------------------------------------------------------
-select avs_test.expect('Functions', 'All expected functions exist', '10',
+select avs_test.expect('Functions', 'All expected functions exist', '15',
   (select count(*)::text from pg_proc
    where pronamespace = 'public'::regnamespace
      and proname in ('set_updated_at','request_jwt_role','is_admin','current_profile_role',
                      'handle_new_user','enforce_profile_role_immutable',
                      'enforce_project_owner_immutable','enforce_child_owner_matches_project',
-                     'record_project_status_change','generate_project_reference')));
+                     'record_project_status_change','generate_project_reference',
+                     'allowed_status_transitions','enforce_project_status_transition',
+                     'assign_delivery_asset_version','approve_preview',
+                     'request_project_revision')));
 
 -- A SECURITY DEFINER function without a pinned search_path can be hijacked by a
 -- schema on the caller's path. This is the Supabase linter's
@@ -103,7 +107,7 @@ select avs_test.expect('Functions', 'Every public function pins search_path', '0
 select avs_test.expect('Functions', 'is_admin() is not executable by PUBLIC', 'false',
   (select has_function_privilege('public', 'public.is_admin()', 'EXECUTE')::text));
 
-select avs_test.expect('Triggers', 'All expected triggers exist', '11',
+select avs_test.expect('Triggers', 'All expected triggers exist', '16',
   (select count(*)::text from pg_trigger t
    join pg_class c on c.oid = t.tgrelid
    where not t.tgisinternal
@@ -113,7 +117,10 @@ select avs_test.expect('Triggers', 'All expected triggers exist', '11',
                       'projects_set_updated_at','projects_enforce_owner_immutable',
                       'project_assets_enforce_owner','project_consents_enforce_owner',
                       'projects_record_status_change','portfolio_items_set_updated_at',
-                      'projects_enforce_status_transition')));
+                      'projects_enforce_status_transition',
+                      'project_assets_assign_version','projects_resolve_revisions',
+                      'project_revisions_set_updated_at','project_revisions_enforce_owner',
+                      'project_preview_approvals_enforce_owner')));
 
 -- -----------------------------------------------------------------------------
 -- Constraints that carry security or integrity weight
@@ -132,6 +139,56 @@ select avs_test.expect('Constraints', 'One consent row per project per type', 't
   (select exists (select 1 from pg_constraint
     where conrelid = 'public.project_consents'::regclass
       and conname = 'project_consents_unique_per_project')::text));
+
+-- -----------------------------------------------------------------------------
+-- Delivery workflow (Milestone 2A)
+-- -----------------------------------------------------------------------------
+
+-- Revisions and approvals are created only by their SECURITY DEFINER RPCs and
+-- resolved only by a trigger, so neither table may expose ANY write policy.
+select avs_test.expect('Delivery RLS', 'project_revisions has no write policy', '0',
+  (select count(*)::text from pg_policies
+   where schemaname = 'public' and tablename = 'project_revisions' and cmd <> 'SELECT'));
+
+select avs_test.expect('Delivery RLS', 'project_preview_approvals has no write policy', '0',
+  (select count(*)::text from pg_policies
+   where schemaname = 'public' and tablename = 'project_preview_approvals' and cmd <> 'SELECT'));
+
+select avs_test.expect('Delivery RLS', 'Delivery assets have exactly one admin-only insert policy', '1',
+  (select count(*)::text from pg_policies
+   where schemaname = 'public' and tablename = 'project_assets' and cmd = 'INSERT'
+     and qual is null and with_check like '%is_admin%'));
+
+select avs_test.expect('Delivery RLS', 'RLS is enabled on both new tables', '2',
+  (select count(*)::text from pg_class
+   where relnamespace = 'public'::regnamespace
+     and relname in ('project_revisions','project_preview_approvals')
+     and relrowsecurity));
+
+select avs_test.expect('Delivery', 'Only one OPEN revision per project is possible', 'true',
+  (select exists (select 1 from pg_indexes
+    where schemaname = 'public' and tablename = 'project_revisions'
+      and indexdef like '%WHERE (status = ''OPEN''::revision_status)%')::text));
+
+select avs_test.expect('Delivery', 'Delivery versions are unique per project and type', 'true',
+  (select exists (select 1 from pg_indexes
+    where schemaname = 'public' and tablename = 'project_assets'
+      and indexname = 'project_assets_delivery_version_uniq')::text));
+
+-- The RPCs are the only route to FINALISING and REVISION_REQUESTED, so they must
+-- be SECURITY DEFINER, pinned, and not executable by anonymous callers.
+select avs_test.expect('Delivery', 'Both customer RPCs are SECURITY DEFINER with a pinned search_path', '2',
+  (select count(*)::text from pg_proc
+   where pronamespace = 'public'::regnamespace
+     and proname in ('approve_preview','request_project_revision')
+     and prosecdef
+     and proconfig::text like '%search_path%'));
+
+select avs_test.expect('Delivery', 'approve_preview is not executable by PUBLIC', 'false',
+  (select has_function_privilege('public', 'public.approve_preview(uuid)', 'EXECUTE')::text));
+
+select avs_test.expect('Delivery', 'request_project_revision is not executable by PUBLIC', 'false',
+  (select has_function_privilege('public', 'public.request_project_revision(uuid, text)', 'EXECUTE')::text));
 
 -- -----------------------------------------------------------------------------
 -- Storage

@@ -8,12 +8,14 @@ interface StatusMeta {
   tone: string;
 }
 
+// Declared in the same order as the public.project_status enum.
 export const PROJECT_STATUS_ORDER: readonly ProjectStatus[] = [
   'DRAFT',
   'SUBMITTED',
   'ASSETS_REVIEW',
   'IN_PRODUCTION',
   'PREVIEW_READY',
+  'FINALISING',
   'REVISION_REQUESTED',
   'COMPLETED',
   'CANCELLED',
@@ -29,6 +31,7 @@ export const PROJECT_TIMELINE_STEPS: readonly ProjectStatus[] = [
   'ASSETS_REVIEW',
   'IN_PRODUCTION',
   'PREVIEW_READY',
+  'FINALISING',
   'COMPLETED',
 ] as const;
 
@@ -57,6 +60,11 @@ const STATUS_META: Record<ProjectStatus, StatusMeta> = {
     label: 'Preview ready',
     description: 'A preview cut is ready for you to review.',
     tone: 'border-teal-400/30 bg-teal-400/10 text-teal-200',
+  },
+  FINALISING: {
+    label: 'Finalising',
+    description: 'You approved the preview. Your final cut is being prepared.',
+    tone: 'border-indigo-400/30 bg-indigo-400/10 text-indigo-200',
   },
   REVISION_REQUESTED: {
     label: 'Revision requested',
@@ -97,30 +105,111 @@ export function timelineIndex(status: ProjectStatus): number {
 }
 
 /**
- * Admin status transitions.
+ * The production workflow.
  *
- * Kept deliberately narrow: an admin advances, branches to a revision, or
- * cancels. Anything not listed here is rejected server-side. DRAFT is absent as
- * a destination because a submitted brief must never silently become editable
- * by the customer again.
+ * `public.allowed_status_transitions()` in
+ * supabase/migrations/20260101000600_delivery_workflow.sql is the AUTHORITY —
+ * a database trigger rejects anything outside it, whoever the caller is. This
+ * table is a mirror, used only to decide which controls to render.
+ *
+ * tests/status-model-consistency.test.ts parses the migration and fails if the
+ * two ever disagree, so this cannot quietly drift.
  */
-const ALLOWED_ADMIN_TRANSITIONS: Record<ProjectStatus, readonly ProjectStatus[]> = {
-  DRAFT: ['CANCELLED'],
+export const ALLOWED_STATUS_TRANSITIONS: Record<ProjectStatus, readonly ProjectStatus[]> = {
+  DRAFT: ['SUBMITTED', 'CANCELLED'],
   SUBMITTED: ['ASSETS_REVIEW', 'IN_PRODUCTION', 'CANCELLED'],
   ASSETS_REVIEW: ['IN_PRODUCTION', 'SUBMITTED', 'CANCELLED'],
   IN_PRODUCTION: ['PREVIEW_READY', 'ASSETS_REVIEW', 'CANCELLED'],
-  PREVIEW_READY: ['REVISION_REQUESTED', 'COMPLETED', 'CANCELLED'],
-  REVISION_REQUESTED: ['IN_PRODUCTION', 'PREVIEW_READY', 'CANCELLED'],
+  PREVIEW_READY: ['REVISION_REQUESTED', 'FINALISING', 'CANCELLED'],
+  REVISION_REQUESTED: ['IN_PRODUCTION', 'CANCELLED'],
+  FINALISING: ['COMPLETED', 'CANCELLED'],
   COMPLETED: [],
   CANCELLED: [],
 };
 
+/**
+ * Transitions that belong to the customer, not to staff.
+ *
+ * The database permits these — a customer performs them — but an administrator
+ * must never be offered them. Approving a preview on the customer's behalf
+ * would be putting words in their mouth, and each is additionally reachable
+ * only through its own RPC, so an admin cannot make them even by crafting a
+ * request.
+ */
+const CUSTOMER_ONLY_TRANSITIONS: readonly (readonly [ProjectStatus, ProjectStatus])[] = [
+  ['DRAFT', 'SUBMITTED'],
+  ['PREVIEW_READY', 'FINALISING'],
+  ['PREVIEW_READY', 'REVISION_REQUESTED'],
+] as const;
+
+function isCustomerOnly(from: ProjectStatus, to: ProjectStatus): boolean {
+  return CUSTOMER_ONLY_TRANSITIONS.some(([f, t]) => f === from && t === to);
+}
+
+/** What the admin UI may offer: the workflow minus the customer's own decisions. */
 export function allowedAdminTransitions(from: ProjectStatus): readonly ProjectStatus[] {
-  return ALLOWED_ADMIN_TRANSITIONS[from];
+  return ALLOWED_STATUS_TRANSITIONS[from].filter((to) => !isCustomerOnly(from, to));
 }
 
 export function canAdminTransition(from: ProjectStatus, to: ProjectStatus): boolean {
-  return ALLOWED_ADMIN_TRANSITIONS[from].includes(to);
+  return allowedAdminTransitions(from).includes(to);
+}
+
+/**
+ * The single production action an administrator should take next, if any.
+ * Drives the admin workspace's call to action.
+ */
+export interface NextAdminAction {
+  label: string;
+  hint: string;
+  /** A status change; absent when the next action is an upload or nothing. */
+  transitionTo?: ProjectStatus;
+  /** The delivery the admin must upload before anything else can happen. */
+  upload?: 'PREVIEW_VIDEO' | 'FINAL_VIDEO';
+}
+
+export function nextAdminAction(status: ProjectStatus): NextAdminAction | null {
+  switch (status) {
+    case 'SUBMITTED':
+      return {
+        label: 'Start Asset Review',
+        hint: 'Check the reference images are usable before committing to production.',
+        transitionTo: 'ASSETS_REVIEW',
+      };
+    case 'ASSETS_REVIEW':
+      return {
+        label: 'Begin Production',
+        hint: 'The references are good. Move this into production.',
+        transitionTo: 'IN_PRODUCTION',
+      };
+    case 'IN_PRODUCTION':
+      return {
+        label: 'Upload Preview',
+        hint: 'Upload a preview cut. The project moves to Preview ready once it lands.',
+        upload: 'PREVIEW_VIDEO',
+      };
+    case 'PREVIEW_READY':
+      return {
+        label: 'Waiting for customer',
+        hint: 'The customer is deciding whether to approve this preview or request changes.',
+      };
+    case 'REVISION_REQUESTED':
+      return {
+        label: 'Begin Revision',
+        hint: 'Read the request below, then move back into production to rework it.',
+        transitionTo: 'IN_PRODUCTION',
+      };
+    case 'FINALISING':
+      return {
+        label: 'Upload Final Video',
+        hint: 'The customer approved the preview. Upload the final cut, then complete the project.',
+        upload: 'FINAL_VIDEO',
+      };
+    case 'DRAFT':
+    case 'COMPLETED':
+    case 'CANCELLED':
+      return null;
+  }
 }
 
 const ORIENTATION_META: Record<ProjectOrientation, { label: string; ratio: string; hint: string }> =

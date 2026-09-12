@@ -25,16 +25,35 @@ describe('status metadata', () => {
 });
 
 describe('canAdminTransition', () => {
-  it('advances a submitted project through production', () => {
+  it('advances a submitted project through production and delivery', () => {
     expect(canAdminTransition('SUBMITTED', 'ASSETS_REVIEW')).toBe(true);
     expect(canAdminTransition('ASSETS_REVIEW', 'IN_PRODUCTION')).toBe(true);
     expect(canAdminTransition('IN_PRODUCTION', 'PREVIEW_READY')).toBe(true);
-    expect(canAdminTransition('PREVIEW_READY', 'COMPLETED')).toBe(true);
+    expect(canAdminTransition('FINALISING', 'COMPLETED')).toBe(true);
   });
 
-  it('supports the revision branch', () => {
-    expect(canAdminTransition('PREVIEW_READY', 'REVISION_REQUESTED')).toBe(true);
+  /**
+   * The two decisions belonging to the customer. The database permits both —
+   * the customer makes them, through their own RPCs — but the admin UI must
+   * never offer either, so allowedAdminTransitions() excludes them.
+   */
+  it('never offers the admin a decision that is the customer’s to make', () => {
+    expect(canAdminTransition('PREVIEW_READY', 'FINALISING')).toBe(false);
+    expect(canAdminTransition('PREVIEW_READY', 'REVISION_REQUESTED')).toBe(false);
+    expect(canAdminTransition('DRAFT', 'SUBMITTED')).toBe(false);
+  });
+
+  it('supports the revision branch, which the admin picks up after the customer', () => {
     expect(canAdminTransition('REVISION_REQUESTED', 'IN_PRODUCTION')).toBe(true);
+    // Answering a revision means a new preview, so rework goes through
+    // production rather than straight back to the rejected cut.
+    expect(canAdminTransition('REVISION_REQUESTED', 'PREVIEW_READY')).toBe(false);
+  });
+
+  it('cannot complete a project without the customer approving first', () => {
+    expect(canAdminTransition('PREVIEW_READY', 'COMPLETED')).toBe(false);
+    expect(canAdminTransition('IN_PRODUCTION', 'COMPLETED')).toBe(false);
+    expect(canAdminTransition('SUBMITTED', 'COMPLETED')).toBe(false);
   });
 
   // Moving a submitted project back to DRAFT would hand edit rights back to the

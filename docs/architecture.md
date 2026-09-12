@@ -385,10 +385,105 @@ Submission (`submitProjectAction`) writes consent rows **first**, then flips the
 status. If the consent write fails, the project stays a DRAFT — there is never a
 submitted project without a consent record.
 
-**Statuses:** `DRAFT → SUBMITTED → ASSETS_REVIEW → IN_PRODUCTION → PREVIEW_READY
-→ COMPLETED`, with `REVISION_REQUESTED` branching from `PREVIEW_READY` and
-`CANCELLED` reachable from anything unfinished. MVP submissions start at
+**Statuses:**
+
+```
+DRAFT ─(customer)→ SUBMITTED → ASSETS_REVIEW → IN_PRODUCTION → PREVIEW_READY
+                                                    ▲               │
+                                                    │               ├─(customer)→ FINALISING → COMPLETED
+                                                    └───────────────┴─(customer)→ REVISION_REQUESTED
+```
+
+`CANCELLED` is reachable from anything unfinished. MVP submissions start at
 `SUBMITTED`.
+
+---
+
+## 7b. Delivery: preview, revision, final
+
+Production is **manual**. An administrator produces the film outside this system
+and uploads it here; nothing in this codebase generates anything.
+
+### The loop
+
+1. **Admin uploads a preview** while the project is `IN_PRODUCTION`. Recording
+   the upload also moves the project to `PREVIEW_READY` — a preview nobody is
+   told about is not a delivery.
+2. **The customer decides.** Two buttons, and only these two:
+   - **Approve Preview** → records an approval against that exact version and
+     moves to `FINALISING`.
+   - **Request Revision** → records the request and moves to
+     `REVISION_REQUESTED`.
+3. **Rework**, if asked for: `REVISION_REQUESTED → IN_PRODUCTION`, a new preview,
+   back to `PREVIEW_READY`. A trigger marks the open revision `RESOLVED` at that
+   moment — resolution is a consequence of delivering, not a button someone
+   might forget.
+4. **Final delivery**: the admin uploads the final while `FINALISING`, then
+   confirms `COMPLETED` explicitly. Uploading the final does _not_ auto-complete;
+   deciding a film is finished is a judgement, not a file transfer.
+
+### Why the customer's two decisions are database functions
+
+Each decision is two writes — a row, and a status change. Done as two round
+trips from a server action, the first could succeed and the second fail, leaving
+a revision against a project that is not in revision: a state no screen can
+render and no workflow can leave.
+
+So each is a single `SECURITY DEFINER` RPC. One call is one statement is one
+transaction: both halves land or neither does. Being `SECURITY DEFINER` they
+bypass RLS, which is precisely why each re-derives `auth.uid()` and re-checks
+ownership and the expected status inside the database. Neither is a general
+status setter — each reaches exactly one status, from exactly one status, for
+the owner alone.
+
+`FINALISING` and `REVISION_REQUESTED` are additionally reachable _only_ through
+those functions. Each sets a transaction-local setting that the status trigger
+requires; `SET LOCAL` lives only inside one transaction, and the only statements
+in an RPC's transaction are its own, so a bare `UPDATE` over PostgREST — from an
+admin or anyone else — can never have it set.
+
+### Versioning
+
+A new preview is a **new row and a new object**. `project_assets.version` is
+assigned by a trigger (Preview 1, Preview 2, …), the object name carries both
+the version and a uuid, and there is no UPDATE policy on `project_assets`. The
+customer sees the latest by default with earlier cuts kept below; support can
+still see what "the second one" actually was.
+
+### Reaching the media
+
+Delivery media is never embedded as a signed URL. Both the player and the
+download link point at `/api/deliveries/{assetId}`, which on **every request**:
+
+1. requires an authenticated caller;
+2. validates the id is well formed;
+3. loads the asset (RLS has already removed other customers' rows);
+4. loads the parent project;
+5. confirms the caller owns it, or is an administrator;
+6. confirms the asset belongs to that project;
+7. confirms the asset's owner matches the project's owner.
+
+Only then does it mint a signed URL and 302 to it. Steps 3–4 already pass
+through RLS, so 5–7 are a second independent lock. Every failure returns the
+same 404, so the route cannot be used to probe for other customers' assets, and
+the response carries `Cache-Control: private, no-store` because a signed URL is
+a bearer credential.
+
+`?download=1` asks Storage to set `Content-Disposition`, which is what makes
+"Download Final Video" a download rather than a navigation.
+
+The bytes never pass through the function — it redirects — so a large video does
+not touch the serverless request path in either direction.
+
+### Size limit
+
+`MAX_DELIVERY_VIDEO_MB` (`lib/storage/config.ts`) defaults to **50 MB** and is
+overridable with `NEXT_PUBLIC_MAX_DELIVERY_VIDEO_MB`. 50 is not an arbitrary
+commercial figure: it is Supabase's own default per-project upload limit, so a
+larger default would produce uploads that fail at the storage layer for reasons
+invisible in this codebase. To raise it, raise the project's global limit first,
+then set the variable to match. The bucket's own 1 GiB limit is the backstop
+above both.
 
 ---
 

@@ -6,6 +6,7 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { StatusBadge } from '@/features/dashboard/status-badge';
 import { listAllProjectsForAdmin } from '@/lib/data/projects';
 import { formatDate } from '@/lib/utils';
+import { nextAdminAction } from '@/lib/projects/status';
 
 export const metadata: Metadata = { title: 'Admin', robots: { index: false, follow: false } };
 
@@ -41,12 +42,15 @@ export default async function AdminPage() {
         />
       ) : (
         <div className="mt-12 overflow-x-auto">
-          <table className="w-full min-w-[46rem] border-collapse text-left text-sm">
+          <table className="w-full min-w-[62rem] border-collapse text-left text-sm">
             <caption className="sr-only">Submitted projects awaiting or in production</caption>
             <thead>
               <tr className="border-b border-white/10 text-xs tracking-wide text-bone-400 uppercase">
                 <th scope="col" className="py-3 pr-4 font-medium">
                   Reference
+                </th>
+                <th scope="col" className="py-3 pr-4 font-medium">
+                  Customer
                 </th>
                 <th scope="col" className="py-3 pr-4 font-medium">
                   Experience
@@ -56,6 +60,9 @@ export default async function AdminPage() {
                 </th>
                 <th scope="col" className="py-3 pr-4 font-medium">
                   Submitted
+                </th>
+                <th scope="col" className="py-3 pr-4 font-medium">
+                  Next action
                 </th>
                 <th scope="col" className="py-3 font-medium">
                   <span className="sr-only">Actions</span>
@@ -68,6 +75,9 @@ export default async function AdminPage() {
                   <td className="py-4 pr-4 font-mono text-xs tracking-wider text-bone-200">
                     {project.public_reference}
                   </td>
+                  <td className="text-bone-300 py-4 pr-4">
+                    {project.profiles?.display_name ?? '—'}
+                  </td>
                   <td className="text-bone-100 py-4 pr-4">
                     {project.video_experiences?.name ?? 'Custom concept'}
                   </td>
@@ -75,6 +85,9 @@ export default async function AdminPage() {
                     <StatusBadge status={project.status} />
                   </td>
                   <td className="py-4 pr-4 text-bone-400">{formatDate(project.submitted_at)}</td>
+                  <td className="text-bone-300 py-4 pr-4">
+                    {nextAdminAction(project.status)?.label ?? '—'}
+                  </td>
                   <td className="py-4">
                     <Link
                       href={`/admin/projects/${project.id}`}

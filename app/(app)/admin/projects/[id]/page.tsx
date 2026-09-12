@@ -6,11 +6,15 @@ import { Container } from '@/components/site/container';
 import { Button } from '@/components/ui/button';
 import { StatusBadge } from '@/features/dashboard/status-badge';
 import { ReferenceGallery } from '@/features/dashboard/reference-gallery';
-import { StatusControl } from '@/features/admin/status-control';
+import { NextActionPanel } from '@/features/admin/next-action-panel';
+import { AdminDeliveryList } from '@/features/admin/delivery-list';
+import { RevisionHistory } from '@/features/delivery/revision-history';
+import { listDeliveryAssets } from '@/lib/data/deliveries';
+import { Alert } from '@/components/ui/alert';
 import { getProjectDetailForAdmin } from '@/lib/data/projects';
 import { signReferenceImages } from '@/lib/data/assets';
 import { consentLabel } from '@/lib/consent/definitions';
-import { allowedAdminTransitions, orientationLabel } from '@/lib/projects/status';
+import { orientationLabel } from '@/lib/projects/status';
 import { formatDateTime } from '@/lib/utils';
 
 export const metadata: Metadata = {
@@ -27,8 +31,14 @@ export default async function AdminProjectPage({ params }: { params: Promise<{ i
   const detail = await getProjectDetailForAdmin(id);
   if (!detail) notFound();
 
-  const { project, assets, consents, history } = detail;
+  const { project, assets, consents, history, revisions, approvals } = detail;
   const signedAssets = await signReferenceImages(assets);
+
+  const deliveries = await listDeliveryAssets(project.id);
+  const previews = deliveries.filter((asset) => asset.assetType === 'PREVIEW_VIDEO');
+  const finals = deliveries.filter((asset) => asset.assetType === 'FINAL_VIDEO');
+  const openRevision = revisions.find((revision) => revision.status === 'OPEN') ?? null;
+  const latestApproval = approvals[0] ?? null;
 
   const facts: { label: string; value: string }[] = [
     { label: 'Experience', value: project.video_experiences?.name ?? 'Custom concept' },
@@ -45,6 +55,15 @@ export default async function AdminProjectPage({ params }: { params: Promise<{ i
     },
     { label: 'Submitted', value: formatDateTime(project.submitted_at) },
     { label: 'Customer id', value: project.user_id },
+    {
+      label: 'Previews delivered',
+      value: previews.length === 0 ? 'None yet' : String(previews.length),
+    },
+    { label: 'Finals delivered', value: finals.length === 0 ? 'None yet' : String(finals.length) },
+    {
+      label: 'Preview approved',
+      value: latestApproval ? formatDateTime(latestApproval.approved_at) : 'Not yet',
+    },
   ];
 
   return (
@@ -70,6 +89,22 @@ export default async function AdminProjectPage({ params }: { params: Promise<{ i
 
       <div className="mt-14 grid gap-12 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <div className="space-y-12">
+          {openRevision ? (
+            <Alert tone="error" title="The customer has requested changes">
+              <p className="leading-relaxed whitespace-pre-wrap">{openRevision.message}</p>
+              <p className="mt-3 text-xs opacity-80">
+                Requested {formatDateTime(openRevision.requested_at)}
+                {openRevision.preview_asset_id
+                  ? ` against Preview ${
+                      previews.find((preview) => preview.id === openRevision.preview_asset_id)
+                        ?.version ?? '—'
+                    }`
+                  : ''}
+                . Uploading a new preview resolves it automatically.
+              </p>
+            </Alert>
+          ) : null}
+
           <section aria-labelledby="admin-brief-heading">
             <h2
               id="admin-brief-heading"
@@ -132,6 +167,40 @@ export default async function AdminProjectPage({ params }: { params: Promise<{ i
             </section>
           ) : null}
 
+          <section aria-labelledby="admin-deliveries-heading" className="space-y-8">
+            <h2
+              id="admin-deliveries-heading"
+              className="text-sm font-medium tracking-wide text-bone-400 uppercase"
+            >
+              Delivery media
+            </h2>
+            <AdminDeliveryList
+              assets={previews}
+              title="Previews"
+              emptyMessage="No preview has been uploaded yet."
+            />
+            <AdminDeliveryList
+              assets={finals}
+              title="Finals"
+              emptyMessage="No final video has been uploaded yet."
+            />
+          </section>
+
+          <section aria-labelledby="admin-revisions-heading">
+            <h2
+              id="admin-revisions-heading"
+              className="text-sm font-medium tracking-wide text-bone-400 uppercase"
+            >
+              Revision history
+            </h2>
+            <div className="mt-4">
+              <RevisionHistory
+                revisions={revisions}
+                emptyMessage="The customer has not requested any changes."
+              />
+            </div>
+          </section>
+
           <section aria-labelledby="admin-assets-heading">
             <h2
               id="admin-assets-heading"
@@ -149,21 +218,7 @@ export default async function AdminProjectPage({ params }: { params: Promise<{ i
         </div>
 
         <aside className="space-y-12">
-          <section aria-labelledby="admin-status-heading">
-            <h2
-              id="admin-status-heading"
-              className="text-sm font-medium tracking-wide text-bone-400 uppercase"
-            >
-              Move status
-            </h2>
-            <div className="mt-5">
-              <StatusControl
-                projectId={project.id}
-                currentStatus={project.status}
-                allowed={allowedAdminTransitions(project.status)}
-              />
-            </div>
-          </section>
+          <NextActionPanel projectId={project.id} status={project.status} />
 
           <section aria-labelledby="admin-consent-heading">
             <h2

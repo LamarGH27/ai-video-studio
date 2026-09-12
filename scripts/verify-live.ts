@@ -67,6 +67,7 @@ const PRINCIPALS = {
 };
 
 const BUCKET = 'reference-images';
+const DELIVERY_BUCKET = 'project-deliveries';
 
 // ---------------------------------------------------------------------------
 // Result matrix
@@ -436,6 +437,198 @@ async function main() {
       .upload(`${aUser.id}/${aDraft.id}/huge.jpg`, oversize, { contentType: 'image/jpeg' });
     return result.error ? `DENIED (${result.error.message.slice(0, 40)})` : 'ALLOWED (stored)';
   });
+
+  // -------------------------------------------------------------------------
+  // DELIVERY MEDIA (Milestone 2A)
+  // -------------------------------------------------------------------------
+  // The delivery bucket is private and its objects live under the CUSTOMER's
+  // folder even though an administrator uploads them. These checks prove that
+  // over the real Storage API, not just as policy predicates.
+
+  // A tiny but structurally valid MP4 (ftyp box only). Storage stores bytes; it
+  // does not need to be playable for an authorisation test.
+  const mp4 = Buffer.from('AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAAIZnJlZQ==', 'base64');
+  const deliveryPath = `${aUser.id}/${aDraft.id}/preview-v1-${crypto.randomUUID()}.mp4`;
+
+  // Only an admin may write into the delivery bucket.
+  await probe(
+    'Delivery storage',
+    'Customer uploads into the delivery bucket',
+    'DENIED',
+    async () => {
+      const result = await a.storage
+        .from(DELIVERY_BUCKET)
+        .upload(deliveryPath, mp4, { contentType: 'video/mp4' });
+      return result.error ? `DENIED (${result.error.message.slice(0, 40)})` : 'ALLOWED (stored)';
+    },
+  );
+
+  const adminUpload = await admin.storage
+    .from(DELIVERY_BUCKET)
+    .upload(deliveryPath, mp4, { contentType: 'video/mp4' });
+  record(
+    'Delivery storage',
+    'Admin uploads a delivery video into the customer folder',
+    'ALLOWED',
+    adminUpload.error ? `DENIED (${adminUpload.error.message.slice(0, 60)})` : 'ALLOWED (stored)',
+  );
+
+  if (!adminUpload.error) {
+    // The owning customer can read their own delivery…
+    await probe(
+      'Delivery storage',
+      'Owner signs a read URL for their own delivery',
+      'ALLOWED',
+      async () => {
+        const result = await a.storage.from(DELIVERY_BUCKET).createSignedUrl(deliveryPath, 60);
+        if (result.error || !result.data?.signedUrl) {
+          return `DENIED (${result.error?.message.slice(0, 40) ?? 'no url'})`;
+        }
+        const response = await fetch(result.data.signedUrl);
+        return response.ok
+          ? `ALLOWED (HTTP ${response.status})`
+          : `DENIED (HTTP ${response.status})`;
+      },
+    );
+
+    // …and the download variant sets Content-Disposition.
+    await probe(
+      'Delivery storage',
+      'Owner signs a DOWNLOAD url for their own delivery',
+      'ALLOWED',
+      async () => {
+        const result = await a.storage
+          .from(DELIVERY_BUCKET)
+          .createSignedUrl(deliveryPath, 60, { download: 'film.mp4' });
+        if (result.error || !result.data?.signedUrl) return 'DENIED (no url)';
+        const response = await fetch(result.data.signedUrl);
+        const disposition = response.headers.get('content-disposition') ?? '';
+        return response.ok && /attachment/i.test(disposition)
+          ? 'ALLOWED (attachment)'
+          : `DENIED (HTTP ${response.status}, disposition="${disposition}")`;
+      },
+    );
+
+    // Customer B must not reach it by any route.
+    await probe('Delivery B→A', 'B signs a read URL for A’s delivery', 'DENIED', async () => {
+      const result = await b.storage.from(DELIVERY_BUCKET).createSignedUrl(deliveryPath, 60);
+      return result.error
+        ? `DENIED (${result.error.message.slice(0, 40)})`
+        : 'ALLOWED (URL issued)';
+    });
+
+    await probe('Delivery B→A', 'B downloads A’s delivery by raw path', 'DENIED', async () => {
+      const result = await b.storage.from(DELIVERY_BUCKET).download(deliveryPath);
+      return result.error ? `DENIED (${result.error.message.slice(0, 40)})` : 'ALLOWED (bytes)';
+    });
+
+    await probe('Delivery B→A', 'B lists A’s delivery folder', 'DENIED', async () => {
+      const result = await b.storage.from(DELIVERY_BUCKET).list(`${aUser.id}/${aDraft.id}`);
+      const n = result.data?.length ?? 0;
+      return result.error || n === 0 ? `DENIED (${n} entries)` : `ALLOWED (${n} entries)`;
+    });
+
+    await probe('Delivery B→A', 'B overwrites A’s delivery', 'DENIED', async () => {
+      const result = await b.storage
+        .from(DELIVERY_BUCKET)
+        .upload(deliveryPath, mp4, { contentType: 'video/mp4', upsert: true });
+      return result.error
+        ? `DENIED (${result.error.message.slice(0, 40)})`
+        : 'ALLOWED (overwritten)';
+    });
+
+    // Anonymous, and the public URL that must not exist.
+    await probe(
+      'Delivery anon',
+      'Anonymous signs a read URL for a delivery',
+      'DENIED',
+      async () => {
+        const result = await anon.storage.from(DELIVERY_BUCKET).createSignedUrl(deliveryPath, 60);
+        return result.error
+          ? `DENIED (${result.error.message.slice(0, 40)})`
+          : 'ALLOWED (URL issued)';
+      },
+    );
+
+    const publicDelivery = await fetch(
+      `${SUPABASE_URL}/storage/v1/object/public/${DELIVERY_BUCKET}/${deliveryPath}`,
+    );
+    record(
+      'Delivery anon',
+      'Fetch a delivery through the PUBLIC url (bucket must be private)',
+      'DENIED',
+      publicDelivery.ok
+        ? `ALLOWED (HTTP ${publicDelivery.status})`
+        : `DENIED (HTTP ${publicDelivery.status})`,
+    );
+
+    await admin.storage.from(DELIVERY_BUCKET).remove([deliveryPath]);
+  }
+
+  // The customer's two decisions are RPCs, and both must refuse a project that
+  // is not the caller's — whatever its real status.
+  await probe('Delivery RPC', 'B approves A’s project', 'DENIED', async () => {
+    const result = await b.rpc('approve_preview', { p_project_id: aDraft.id });
+    return result.error ? `DENIED (${result.error.code ?? 'error'})` : 'ALLOWED';
+  });
+
+  await probe('Delivery RPC', 'B requests a revision on A’s project', 'DENIED', async () => {
+    const result = await b.rpc('request_project_revision', {
+      p_project_id: aDraft.id,
+      p_message: 'Changing somebody else project that I have no relationship with at all.',
+    });
+    return result.error ? `DENIED (${result.error.code ?? 'error'})` : 'ALLOWED';
+  });
+
+  // Owner, but the project is a DRAFT rather than PREVIEW_READY.
+  await probe(
+    'Delivery RPC',
+    'Owner approves a project that is not PREVIEW_READY',
+    'DENIED',
+    async () => {
+      const result = await a.rpc('approve_preview', { p_project_id: aDraft.id });
+      return result.error ? `DENIED (${result.error.code ?? 'error'})` : 'ALLOWED';
+    },
+  );
+
+  await probe('Delivery RPC', 'Customer writes a revision row directly', 'DENIED', async () =>
+    fromQuery(
+      await a
+        .from('project_revisions')
+        .insert({
+          project_id: aDraft.id,
+          user_id: aUser.id,
+          message: 'Writing straight to the table rather than going through the function.',
+        })
+        .select(),
+    ),
+  );
+
+  await probe('Delivery RPC', 'Customer writes an approval row directly', 'DENIED', async () =>
+    fromQuery(
+      await a
+        .from('project_preview_approvals')
+        .insert({ project_id: aDraft.id, user_id: aUser.id })
+        .select(),
+    ),
+  );
+
+  await probe('Delivery RPC', 'Customer inserts a PREVIEW_VIDEO asset', 'DENIED', async () =>
+    fromQuery(
+      await a
+        .from('project_assets')
+        .insert({
+          project_id: aDraft.id,
+          user_id: aUser.id,
+          asset_type: 'PREVIEW_VIDEO',
+          storage_bucket: DELIVERY_BUCKET,
+          storage_path: `${aUser.id}/${aDraft.id}/self-made.mp4`,
+          mime_type: 'video/mp4',
+          file_size: 1000,
+        })
+        .select(),
+    ),
+  );
 
   // -------------------------------------------------------------------------
   // Admin over the real API

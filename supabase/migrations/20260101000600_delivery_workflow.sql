@@ -1,0 +1,490 @@
+-- =============================================================================
+-- AI Video Studio — preview, revision and final delivery
+-- =============================================================================
+-- Additive. Nothing in migrations 000000–000500 is modified; the two functions
+-- redefined here (allowed_status_transitions, enforce_project_status_transition)
+-- are replaced in place with CREATE OR REPLACE, which is a forward change, not
+-- an edit to applied history.
+--
+-- Production stays MANUAL: an administrator produces the video externally and
+-- uploads it here. Nothing in this migration generates anything.
+--
+-- What it adds:
+--   * versioned delivery assets (previews are never overwritten)
+--   * project_revisions      — the customer's change requests
+--   * project_preview_approvals — who approved which preview, and when
+--   * workflow invariants enforced in the database, not in buttons
+--   * two SECURITY DEFINER RPCs so the customer's two decisions are atomic
+--
+-- Requires 20260101000500_add_finalising_status.sql to have COMMITTED first.
+-- =============================================================================
+
+-- -----------------------------------------------------------------------------
+-- 1. Versioned delivery assets
+-- -----------------------------------------------------------------------------
+-- A customer must be able to see that "Preview 2" replaced "Preview 1", and
+-- support must be able to see what "Preview 1" actually was. So a new preview is
+-- a new row and a new storage object; nothing is ever overwritten.
+
+alter table public.project_assets
+  add column if not exists version integer not null default 1;
+
+comment on column public.project_assets.version is
+  'Delivery sequence within (project_id, asset_type): Preview 1, Preview 2, … Always 1 for REFERENCE_IMAGE.';
+
+-- Reference images are many-per-project and all share version 1, so the
+-- uniqueness only applies to deliveries.
+create unique index if not exists project_assets_delivery_version_uniq
+  on public.project_assets (project_id, asset_type, version)
+  where asset_type in ('PREVIEW_VIDEO', 'FINAL_VIDEO');
+
+create index if not exists project_assets_delivery_idx
+  on public.project_assets (project_id, asset_type, version desc)
+  where asset_type in ('PREVIEW_VIDEO', 'FINAL_VIDEO');
+
+-- The version is assigned by the database, not by the caller. A client that
+-- supplies one cannot use it to overwrite an earlier delivery.
+create or replace function public.assign_delivery_asset_version()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if new.asset_type in ('PREVIEW_VIDEO', 'FINAL_VIDEO') then
+    select coalesce(max(a.version), 0) + 1
+    into new.version
+    from public.project_assets a
+    where a.project_id = new.project_id
+      and a.asset_type = new.asset_type;
+  else
+    new.version := 1;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists project_assets_assign_version on public.project_assets;
+create trigger project_assets_assign_version
+  before insert on public.project_assets
+  for each row execute function public.assign_delivery_asset_version();
+
+-- -----------------------------------------------------------------------------
+-- 2. Revisions
+-- -----------------------------------------------------------------------------
+
+do $$
+begin
+  if not exists (select 1 from pg_type where typname = 'revision_status'
+                 and typnamespace = 'public'::regnamespace) then
+    create type public.revision_status as enum ('OPEN', 'RESOLVED');
+  end if;
+end;
+$$;
+
+create table if not exists public.project_revisions (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects (id) on delete cascade,
+  -- Denormalised owner, same as project_assets: the ownership triggers and RLS
+  -- policies then never need a join.
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  -- Which preview the customer was looking at. Kept as audit even if the asset
+  -- row is ever removed, hence nullable + ON DELETE SET NULL.
+  preview_asset_id uuid references public.project_assets (id) on delete set null,
+  message text not null check (char_length(btrim(message)) between 20 and 2000),
+  status public.revision_status not null default 'OPEN',
+  requested_at timestamptz not null default now(),
+  resolved_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint project_revisions_resolved_has_timestamp check (
+    (status = 'RESOLVED' and resolved_at is not null)
+    or (status = 'OPEN' and resolved_at is null)
+  )
+);
+
+comment on table public.project_revisions is
+  'Customer change requests against a preview. Append-only: revisions are resolved, never deleted.';
+
+-- One open request at a time. A second would make "which revision is this
+-- preview answering?" unanswerable, so the database refuses it outright.
+create unique index if not exists project_revisions_one_open_per_project
+  on public.project_revisions (project_id)
+  where status = 'OPEN';
+
+create index if not exists project_revisions_project_idx
+  on public.project_revisions (project_id, requested_at desc);
+
+drop trigger if exists project_revisions_set_updated_at on public.project_revisions;
+create trigger project_revisions_set_updated_at
+  before update on public.project_revisions
+  for each row execute function public.set_updated_at();
+
+-- Same guarantee as assets and consents: the row's owner is the project's owner.
+drop trigger if exists project_revisions_enforce_owner on public.project_revisions;
+create trigger project_revisions_enforce_owner
+  before insert or update on public.project_revisions
+  for each row execute function public.enforce_child_owner_matches_project();
+
+-- -----------------------------------------------------------------------------
+-- 3. Preview approvals
+-- -----------------------------------------------------------------------------
+
+create table if not exists public.project_preview_approvals (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects (id) on delete cascade,
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  preview_asset_id uuid references public.project_assets (id) on delete set null,
+  approved_at timestamptz not null default now(),
+  created_at timestamptz not null default now()
+);
+
+comment on table public.project_preview_approvals is
+  'Records that a customer approved a specific preview version. Evidence for the FINALISING transition.';
+
+create index if not exists project_preview_approvals_project_idx
+  on public.project_preview_approvals (project_id, approved_at desc);
+
+drop trigger if exists project_preview_approvals_enforce_owner on public.project_preview_approvals;
+create trigger project_preview_approvals_enforce_owner
+  before insert or update on public.project_preview_approvals
+  for each row execute function public.enforce_child_owner_matches_project();
+
+-- -----------------------------------------------------------------------------
+-- 4. The workflow, restated
+-- -----------------------------------------------------------------------------
+-- Changes from 20260101000400:
+--   * PREVIEW_READY -> COMPLETED is REMOVED. Approval is now an explicit
+--     customer decision that lands on FINALISING; jumping straight to COMPLETED
+--     would skip it, which is exactly the kind of jump this table exists to stop.
+--   * PREVIEW_READY -> FINALISING added (customer approval).
+--   * FINALISING -> COMPLETED added (final uploaded).
+--   * REVISION_REQUESTED -> PREVIEW_READY is REMOVED. Answering a revision means
+--     producing a new preview, which means passing through IN_PRODUCTION. Without
+--     this, a project could return to PREVIEW_READY on the same preview the
+--     customer just rejected, and the revision would auto-resolve unanswered.
+--
+-- Kept: cancellation from any unfinished state; COMPLETED and CANCELLED final.
+create or replace function public.allowed_status_transitions(from_status public.project_status)
+returns public.project_status[]
+language sql
+immutable
+set search_path = ''
+as $$
+  select case from_status
+    when 'DRAFT'              then array['SUBMITTED', 'CANCELLED']
+    when 'SUBMITTED'          then array['ASSETS_REVIEW', 'IN_PRODUCTION', 'CANCELLED']
+    when 'ASSETS_REVIEW'      then array['IN_PRODUCTION', 'SUBMITTED', 'CANCELLED']
+    when 'IN_PRODUCTION'      then array['PREVIEW_READY', 'ASSETS_REVIEW', 'CANCELLED']
+    when 'PREVIEW_READY'      then array['REVISION_REQUESTED', 'FINALISING', 'CANCELLED']
+    when 'REVISION_REQUESTED' then array['IN_PRODUCTION', 'CANCELLED']
+    when 'FINALISING'         then array['COMPLETED', 'CANCELLED']
+    -- COMPLETED and CANCELLED are final.
+    else array[]::text[]
+  end::public.project_status[];
+$$;
+
+comment on function public.allowed_status_transitions(public.project_status) is
+  'The production workflow. Mirrored (for rendering only) by ALLOWED_ADMIN_TRANSITIONS in lib/projects/status.ts; tests/status-model-consistency.test.ts proves the two agree.';
+
+-- -----------------------------------------------------------------------------
+-- 5. Workflow invariants
+-- -----------------------------------------------------------------------------
+-- Replaces the 000400 guard, keeping its behaviour and adding four rules that
+-- cannot be expressed as a transition table because they depend on other rows.
+--
+-- FINALISING and REVISION_REQUESTED are reachable ONLY through their RPCs. Each
+-- RPC sets a transaction-local GUC that this trigger requires. A caller cannot
+-- set it themselves in any way that matters: SET LOCAL only lives inside one
+-- transaction, and the only statements that can run in the RPC's transaction are
+-- the RPC's own. An admin updating status over PostgREST gets one statement per
+-- transaction, so the flag is never set for them.
+create or replace function public.enforce_project_status_transition()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+declare
+  v_count integer;
+begin
+  if new.status is not distinct from old.status then
+    return new;
+  end if;
+
+  -- Break-glass: a direct connection has no PostgREST role claim.
+  if coalesce(public.request_jwt_role(), 'service_role') = 'service_role' then
+    return new;
+  end if;
+
+  if not (new.status = any (public.allowed_status_transitions(old.status))) then
+    raise exception 'Project status cannot move from % to %', old.status, new.status
+      using errcode = '42501';
+  end if;
+
+  -- A preview cannot be ready if there is no preview.
+  if new.status = 'PREVIEW_READY' then
+    select count(*) into v_count
+    from public.project_assets a
+    where a.project_id = new.id and a.asset_type = 'PREVIEW_VIDEO';
+
+    if v_count = 0 then
+      raise exception 'A project cannot become PREVIEW_READY without a preview video'
+        using errcode = '42501';
+    end if;
+  end if;
+
+  -- Nor completed without something to deliver.
+  if new.status = 'COMPLETED' then
+    select count(*) into v_count
+    from public.project_assets a
+    where a.project_id = new.id and a.asset_type = 'FINAL_VIDEO';
+
+    if v_count = 0 then
+      raise exception 'A project cannot become COMPLETED without a final video'
+        using errcode = '42501';
+    end if;
+  end if;
+
+  -- These two are customer decisions, and only their RPCs may make them.
+  if new.status = 'FINALISING'
+     and coalesce(current_setting('avs.preview_approval', true), '') <> 'on' then
+    raise exception 'FINALISING is reachable only through public.approve_preview()'
+      using errcode = '42501';
+  end if;
+
+  if new.status = 'REVISION_REQUESTED'
+     and coalesce(current_setting('avs.revision_request', true), '') <> 'on' then
+    raise exception 'REVISION_REQUESTED is reachable only through public.request_project_revision()'
+      using errcode = '42501';
+  end if;
+
+  return new;
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 6. A new preview answers the open revision
+-- -----------------------------------------------------------------------------
+-- Resolution is a consequence of delivering a new preview, not a separate button
+-- an administrator might forget. History is preserved: the row is marked
+-- RESOLVED, never deleted.
+create or replace function public.resolve_revisions_on_new_preview()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  update public.project_revisions
+  set status = 'RESOLVED', resolved_at = now()
+  where project_id = new.id and status = 'OPEN';
+  return null;
+end;
+$$;
+
+drop trigger if exists projects_resolve_revisions on public.projects;
+create trigger projects_resolve_revisions
+  after update of status on public.projects
+  for each row
+  when (new.status = 'PREVIEW_READY' and old.status is distinct from new.status)
+  execute function public.resolve_revisions_on_new_preview();
+
+-- -----------------------------------------------------------------------------
+-- 7. The customer's two decisions, as atomic operations
+-- -----------------------------------------------------------------------------
+-- Both are SECURITY DEFINER, so both bypass RLS — which is precisely why each
+-- one re-derives the caller from auth.uid() and verifies ownership and status
+-- itself. Neither is a general-purpose status setter: each can reach exactly one
+-- status, from exactly one status, for exactly one caller.
+--
+-- Being a single function call, each is one statement and therefore one
+-- transaction: the insert and the status change either both land or neither
+-- does. There is no window in which a revision exists against a project that is
+-- not REVISION_REQUESTED.
+
+create or replace function public.approve_preview(p_project_id uuid)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_uid         uuid := (select auth.uid());
+  v_owner       uuid;
+  v_status      public.project_status;
+  v_preview_id  uuid;
+  v_approval_id uuid;
+begin
+  if v_uid is null then
+    raise exception 'Authentication required' using errcode = '42501';
+  end if;
+
+  -- FOR UPDATE: two clicks in flight at once must not both pass the status check.
+  select p.user_id, p.status into v_owner, v_status
+  from public.projects p
+  where p.id = p_project_id
+  for update;
+
+  -- Same answer for "does not exist" and "is not yours", so this cannot be used
+  -- to discover whether another customer's project id is real.
+  if v_owner is null or v_owner <> v_uid then
+    raise exception 'Project not found' using errcode = '42501';
+  end if;
+
+  if v_status <> 'PREVIEW_READY' then
+    raise exception 'Only a project awaiting your approval can be approved'
+      using errcode = '42501';
+  end if;
+
+  select a.id into v_preview_id
+  from public.project_assets a
+  where a.project_id = p_project_id and a.asset_type = 'PREVIEW_VIDEO'
+  order by a.version desc
+  limit 1;
+
+  if v_preview_id is null then
+    raise exception 'There is no preview to approve' using errcode = '42501';
+  end if;
+
+  insert into public.project_preview_approvals (project_id, user_id, preview_asset_id)
+  values (p_project_id, v_uid, v_preview_id)
+  returning id into v_approval_id;
+
+  perform set_config('avs.preview_approval', 'on', true);
+  update public.projects set status = 'FINALISING' where id = p_project_id;
+
+  return v_approval_id;
+end;
+$$;
+
+revoke execute on function public.approve_preview(uuid) from public;
+grant execute on function public.approve_preview(uuid) to authenticated;
+
+comment on function public.approve_preview(uuid) is
+  'Customer approval of the latest preview. Records the approval and moves the project to FINALISING, atomically.';
+
+create or replace function public.request_project_revision(p_project_id uuid, p_message text)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_uid         uuid := (select auth.uid());
+  v_owner       uuid;
+  v_status      public.project_status;
+  v_preview_id  uuid;
+  v_revision_id uuid;
+  v_message     text := btrim(coalesce(p_message, ''));
+begin
+  if v_uid is null then
+    raise exception 'Authentication required' using errcode = '42501';
+  end if;
+
+  if char_length(v_message) < 20 or char_length(v_message) > 2000 then
+    raise exception 'Tell us what to change, in between 20 and 2000 characters'
+      using errcode = '22023';
+  end if;
+
+  select p.user_id, p.status into v_owner, v_status
+  from public.projects p
+  where p.id = p_project_id
+  for update;
+
+  if v_owner is null or v_owner <> v_uid then
+    raise exception 'Project not found' using errcode = '42501';
+  end if;
+
+  if v_status <> 'PREVIEW_READY' then
+    raise exception 'A revision can only be requested against a preview'
+      using errcode = '42501';
+  end if;
+
+  if exists (
+    select 1 from public.project_revisions r
+    where r.project_id = p_project_id and r.status = 'OPEN'
+  ) then
+    raise exception 'There is already an open revision request on this project'
+      using errcode = '23505';
+  end if;
+
+  select a.id into v_preview_id
+  from public.project_assets a
+  where a.project_id = p_project_id and a.asset_type = 'PREVIEW_VIDEO'
+  order by a.version desc
+  limit 1;
+
+  insert into public.project_revisions (project_id, user_id, preview_asset_id, message)
+  values (p_project_id, v_uid, v_preview_id, v_message)
+  returning id into v_revision_id;
+
+  perform set_config('avs.revision_request', 'on', true);
+  update public.projects set status = 'REVISION_REQUESTED' where id = p_project_id;
+
+  return v_revision_id;
+end;
+$$;
+
+revoke execute on function public.request_project_revision(uuid, text) from public;
+grant execute on function public.request_project_revision(uuid, text) to authenticated;
+
+comment on function public.request_project_revision(uuid, text) is
+  'Customer revision request against the latest preview. Creates the revision and moves the project to REVISION_REQUESTED, atomically.';
+
+-- -----------------------------------------------------------------------------
+-- 8. Row Level Security
+-- -----------------------------------------------------------------------------
+
+alter table public.project_revisions         enable row level security;
+alter table public.project_preview_approvals enable row level security;
+
+-- Read-only to their owner and to staff. There is deliberately NO insert,
+-- update or delete policy on either table: the only way to create a revision or
+-- an approval is through the RPCs above, which validate before they write.
+-- Resolution is likewise trigger-driven, so nobody — customer or admin — can
+-- edit or erase this history through the API.
+
+drop policy if exists "project_revisions: owner can read own revisions" on public.project_revisions;
+create policy "project_revisions: owner can read own revisions"
+  on public.project_revisions for select
+  to authenticated
+  using (user_id = (select auth.uid()));
+
+drop policy if exists "project_revisions: admin can read all revisions" on public.project_revisions;
+create policy "project_revisions: admin can read all revisions"
+  on public.project_revisions for select
+  to authenticated
+  using (public.is_admin());
+
+drop policy if exists "project_preview_approvals: owner can read own approvals" on public.project_preview_approvals;
+create policy "project_preview_approvals: owner can read own approvals"
+  on public.project_preview_approvals for select
+  to authenticated
+  using (user_id = (select auth.uid()));
+
+drop policy if exists "project_preview_approvals: admin can read all approvals" on public.project_preview_approvals;
+create policy "project_preview_approvals: admin can read all approvals"
+  on public.project_preview_approvals for select
+  to authenticated
+  using (public.is_admin());
+
+-- Delivery assets are staff output. The existing customer INSERT policy already
+-- restricts customers to REFERENCE_IMAGE on their own draft; this adds the only
+-- path by which PREVIEW_VIDEO and FINAL_VIDEO rows can ever be created.
+drop policy if exists "project_assets: admin can add delivery assets" on public.project_assets;
+create policy "project_assets: admin can add delivery assets"
+  on public.project_assets for insert
+  to authenticated
+  with check (
+    public.is_admin()
+    and asset_type in ('PREVIEW_VIDEO', 'FINAL_VIDEO')
+    and storage_bucket = 'project-deliveries'
+    -- user_id must be the CUSTOMER who owns the project, not the admin: it is
+    -- what the customer's read policy and the storage path both key on.
+    and exists (
+      select 1 from public.projects p
+      where p.id = project_id and p.user_id = project_assets.user_id
+    )
+  );
+
+-- Still no UPDATE policy on project_assets: a delivery row, once written, is
+-- immutable. A new preview is a new row.

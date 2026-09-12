@@ -39,6 +39,8 @@ export const SKIP_BOTH_CUSTOMERS =
   'Set E2E_CUSTOMER_A_* and E2E_CUSTOMER_B_* to run cross-customer isolation specs.';
 export const SKIP_ADMIN =
   'Set E2E_ADMIN_EMAIL / E2E_ADMIN_PASSWORD for an account promoted to the admin role.';
+export const SKIP_ADMIN_AND_BOTH_CUSTOMERS =
+  'The delivery lifecycle needs all three principals: set E2E_CUSTOMER_A_*, E2E_CUSTOMER_B_* and E2E_ADMIN_*.';
 
 /**
  * Whether the app under test is wired to a Supabase project at all. Specs that
@@ -63,6 +65,19 @@ export async function signOut(page: Page): Promise<void> {
   await page.goto('/dashboard');
   await page.getByRole('button', { name: 'Sign out' }).click();
   await page.waitForURL('**/', { timeout: 20_000 });
+}
+
+/**
+ * A minimal but structurally valid MP4 (an `ftyp` box).
+ *
+ * Storage stores bytes and the application verifies the content type it reports,
+ * so this is enough to exercise the whole upload and authorisation path without
+ * committing a real video to the repository. It is not playable, which is fine:
+ * the specs assert the player is present and the media is authorised, never
+ * that pixels appear.
+ */
+export function tinyMp4(): Buffer {
+  return Buffer.from('AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAAIZnJlZQ==', 'base64');
 }
 
 /** A 1x1 JPEG — small enough to inline, real enough to upload. */
