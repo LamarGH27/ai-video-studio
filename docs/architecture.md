@@ -541,7 +541,10 @@ there. Hiding the nav link is presentation and is not relied on anywhere.
 Admin status changes run as the signed-in admin, not with the service-role key.
 That keeps RLS in play and makes `project_status_history.changed_by` correct.
 Transitions are restricted by `ALLOWED_ADMIN_TRANSITIONS` in
-`lib/projects/status.ts`, checked in the UI and again server-side.
+`lib/projects/status.ts`, checked in the UI and again server-side — and
+`allowedAdminTransitions()` additionally withholds the two moves the database
+refuses for want of a delivery (`PREVIEW_READY` without a preview, `COMPLETED`
+without a final), so a button that could only fail is never rendered.
 
 Roles are granted out-of-band, in the Supabase SQL Editor. There is no route,
 action or form anywhere in this application that writes `profiles.role`.

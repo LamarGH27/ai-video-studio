@@ -193,6 +193,14 @@ under the "owner can update own draft projects" policy.
 `ALLOWED_ADMIN_TRANSITIONS` in `lib/projects/status.ts` mirrors this table, but
 only to decide which buttons to render — **keep the two in step**.
 
+Two of the rules are not in the table at all, because they depend on other rows
+rather than on the status you are leaving: `PREVIEW_READY` requires a preview to
+exist, and `COMPLETED` requires a final video.
+`enforce_project_status_transition()` refuses both. `allowedAdminTransitions()`
+therefore takes what has been delivered as an argument and filters those two
+moves out, so the interface never offers a control the database is certain to
+reject.
+
 **RLS intent** — a customer sees and creates only their own projects, and may
 edit one only while it is a `DRAFT`. Submitting is the same act as making the
 brief read-only. Admins read everything and move status, but cannot reassign a

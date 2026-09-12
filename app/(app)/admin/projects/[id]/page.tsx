@@ -218,7 +218,15 @@ export default async function AdminProjectPage({ params }: { params: Promise<{ i
         </div>
 
         <aside className="space-y-12">
-          <NextActionPanel projectId={project.id} status={project.status} />
+          {/* The panel needs to know what has been delivered, not only the
+              status: "move to Completed" is a move the database refuses until
+              a final video exists, and offering it anyway produces a button
+              that can only fail. */}
+          <NextActionPanel
+            projectId={project.id}
+            status={project.status}
+            deliveries={{ hasPreview: previews.length > 0, hasFinal: finals.length > 0 }}
+          />
 
           <section aria-labelledby="admin-consent-heading">
             <h2

@@ -57,6 +57,7 @@ test.describe('delivery lifecycle', () => {
    */
   const nextAction = (page: Page) => page.getByRole('region', { name: 'Next production action' });
   const previewList = (page: Page) => page.getByRole('region', { name: 'Previews' });
+  const finalList = (page: Page) => page.getByRole('region', { name: 'Finals' });
 
   /**
    * The panel's heading — what stage the project is at.
@@ -190,12 +191,27 @@ test.describe('delivery lifecycle', () => {
     await page.reload();
     await expect(actionButton(page, 'Upload Final Video')).toBeVisible({ timeout: 20_000 });
 
+    // Nothing has been delivered yet, so completion is not on offer. The
+    // database would refuse it, and a button that can only fail is worse than
+    // no button — the admin would find out only after clicking.
+    await expect(page.getByRole('button', { name: /Move to Completed/ })).toHaveCount(0);
+
     await chooseDeliveryFile(page);
-    // The final does NOT auto-complete: the admin confirms completion.
-    await expect(page.getByRole('button', { name: /Move to Completed/ })).toBeVisible({
-      timeout: 90_000,
-    });
-    await page.getByRole('button', { name: /Move to Completed/ }).click();
+
+    // Wait on the delivery appearing, NOT on the Move to Completed button.
+    // Uploading a final changes no status — by design, completion stays an
+    // explicit decision — so unlike the preview step there is no status change
+    // to wait for, and the button is the wrong thing to wait on in any case:
+    // clicking it before the upload lands asks the database to complete a
+    // project with nothing to deliver, which it refuses.
+    await expect(finalList(page).getByText('Final 1')).toBeVisible({ timeout: 90_000 });
+
+    // Only now is the transition actually available. It is offered *because*
+    // the final exists — see allowedAdminTransitions() — so this assertion is
+    // also what proves the control is not offered prematurely.
+    const completeButton = page.getByRole('button', { name: /Move to Completed/ });
+    await expect(completeButton).toBeVisible();
+    await completeButton.click();
     await expect(
       nextAction(page).getByText(/Delivered\. Nothing further is required\./),
     ).toBeVisible({ timeout: 30_000 });

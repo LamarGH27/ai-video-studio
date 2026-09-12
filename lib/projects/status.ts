@@ -169,13 +169,60 @@ function isCustomerOnly(from: ProjectStatus, to: ProjectStatus): boolean {
   return CUSTOMER_ONLY_TRANSITIONS.some(([f, t]) => f === from && t === to);
 }
 
-/** What the admin UI may offer: the workflow minus the customer's own decisions. */
-export function allowedAdminTransitions(from: ProjectStatus): readonly ProjectStatus[] {
-  return ALLOWED_STATUS_TRANSITIONS[from].filter((to) => !isCustomerOnly(from, to));
+/**
+ * What delivery media a project already has.
+ *
+ * Two of the workflow's rules are not about the status you are coming from,
+ * but about what exists: a project cannot become PREVIEW_READY without a
+ * preview, and cannot become COMPLETED without a final video.
+ * enforce_project_status_transition() rejects both, so a transition table alone
+ * over-states what an administrator can do — and a button that the database is
+ * certain to refuse is worse than no button, because the admin discovers it
+ * only after clicking.
+ */
+export interface DeliveryPresence {
+  hasPreview: boolean;
+  hasFinal: boolean;
 }
 
-export function canAdminTransition(from: ProjectStatus, to: ProjectStatus): boolean {
-  return allowedAdminTransitions(from).includes(to);
+/**
+ * What the admin UI may offer: the workflow, minus the customer's own
+ * decisions, minus the moves the database would refuse for want of a delivery.
+ *
+ * `deliveries` is required rather than optional on purpose. Defaulting it would
+ * let a caller silently get the over-permissive answer, which is the bug this
+ * parameter exists to prevent.
+ */
+export function allowedAdminTransitions(
+  from: ProjectStatus,
+  deliveries: DeliveryPresence,
+): readonly ProjectStatus[] {
+  return ALLOWED_STATUS_TRANSITIONS[from].filter((to) => {
+    if (isCustomerOnly(from, to)) return false;
+    if (to === 'PREVIEW_READY' && !deliveries.hasPreview) return false;
+    if (to === 'COMPLETED' && !deliveries.hasFinal) return false;
+    return true;
+  });
+}
+
+export function canAdminTransition(
+  from: ProjectStatus,
+  to: ProjectStatus,
+  deliveries: DeliveryPresence,
+): boolean {
+  return allowedAdminTransitions(from, deliveries).includes(to);
+}
+
+/**
+ * Why a transition the workflow permits is nonetheless unavailable right now.
+ * Returns null when the transition is not blocked by missing media — either it
+ * is available, or it was never permitted in the first place.
+ */
+export function missingDeliveryFor(to: ProjectStatus): string | null {
+  if (to === 'PREVIEW_READY')
+    return 'Upload a preview before moving this project to Preview ready.';
+  if (to === 'COMPLETED') return 'Upload the final video before completing this project.';
+  return null;
 }
 
 /**

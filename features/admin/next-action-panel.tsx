@@ -1,7 +1,12 @@
 import { Alert } from '@/components/ui/alert';
 import { DeliveryUploader } from '@/features/delivery/delivery-uploader';
 import { StatusControl } from '@/features/admin/status-control';
-import { nextAdminAction, allowedAdminTransitions, statusLabel } from '@/lib/projects/status';
+import {
+  nextAdminAction,
+  allowedAdminTransitions,
+  statusLabel,
+  type DeliveryPresence,
+} from '@/lib/projects/status';
 import type { ProjectStatus } from '@/types/database';
 
 /**
@@ -16,12 +21,14 @@ import type { ProjectStatus } from '@/types/database';
 export function NextActionPanel({
   projectId,
   status,
+  deliveries,
 }: {
   projectId: string;
   status: ProjectStatus;
+  deliveries: DeliveryPresence;
 }) {
   const action = nextAdminAction(status);
-  const transitions = allowedAdminTransitions(status);
+  const transitions = allowedAdminTransitions(status, deliveries);
 
   return (
     <section aria-labelledby="next-action-heading" className="space-y-5">
