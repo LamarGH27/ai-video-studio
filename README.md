@@ -282,7 +282,22 @@ It observes that a delivery insert blocks on the project row while a customer
 decision on the same project is in flight, and is refused outright once that
 decision commits. Its assertions are counted with all the others.
 
-Requires PostgreSQL 16 server binaries (`initdb`, `pg_ctl`, `psql`).
+Requires PostgreSQL 16 server binaries (`initdb`, `pg_ctl`, `psql`) — the
+server package, not just the client. It needs **no `sudo`, no running PostgreSQL
+service and no system data directory**: it creates a throwaway cluster under
+`${TMPDIR:-/tmp}`, listening only on a socket inside that directory, and removes
+it when it finishes. A cluster left behind by an interrupted run is stopped and
+discarded at the start of the next one, so repeated runs cannot pick up stale
+data. On Debian and Ubuntu the binaries live off `PATH` under
+`/usr/lib/postgresql/<major>/bin`; the script finds them there, on `PATH`, or via
+`pg_config`.
+
+| Variable           | Effect                                                                      |
+| ------------------ | --------------------------------------------------------------------------- |
+| `PGBIN`            | Directory holding `initdb`/`pg_ctl`/`psql`, if auto-detection needs help    |
+| `AVS_PG_ROOT`      | Where the throwaway cluster lives (default `${TMPDIR:-/tmp}/avs-verify-pg`) |
+| `PGPORT`           | Port on the cluster's private socket (default `55432`)                      |
+| `AVS_KEEP_CLUSTER` | `1` leaves the cluster up afterwards, to inspect a failure                  |
 
 ### 3. Live verification — `npm run verify:live`
 
