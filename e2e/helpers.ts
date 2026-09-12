@@ -117,11 +117,10 @@ export async function createAndSubmitProject(
 
   await page.waitForURL(/\/dashboard\/projects\/[0-9a-f-]+/, { timeout: 30_000 });
 
-  const reference =
-    (await page
-      .getByText(/AVS-\d{6}/)
-      .first()
-      .textContent()) ?? '';
+  // Anchored. A bare /AVS-\d{6}/ also matches every ancestor whose text merely
+  // contains the reference; `^...$` matches only the element whose entire text
+  // is the reference itself, so no .first() guess is needed.
+  const reference = (await page.getByText(/^AVS-\d{6}$/).textContent()) ?? '';
   return { url: page.url(), reference: reference.trim() };
 }
 

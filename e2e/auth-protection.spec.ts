@@ -47,9 +47,16 @@ test('sign-in rejects bad credentials without saying whether the account exists'
   await page.getByLabel('Password').fill('an-incorrect-password');
   await page.getByRole('button', { name: 'Sign in' }).click();
 
-  const alert = page.getByRole('alert');
+  // Next.js renders its own always-present role="alert" route announcer
+  // (#__next-route-announcer__), so a bare getByRole('alert') is ambiguous.
+  // Scoping to the sign-in form targets the application's alert without
+  // presupposing its wording — which matters, because the wording is exactly
+  // what is being asserted below.
+  const signInForm = page.locator('form').filter({ has: page.getByLabel('Password') });
+  const alert = signInForm.getByRole('alert');
+
   await expect(alert).toBeVisible({ timeout: 20_000 });
   await expect(alert).toContainText(/email or password is incorrect/i);
   // Must not distinguish "no such account" from "wrong password".
-  await expect(alert).not.toContainText(/not found|no account|unregistered/i);
+  await expect(alert).not.toContainText(/not found|no account|unregistered|does not exist/i);
 });

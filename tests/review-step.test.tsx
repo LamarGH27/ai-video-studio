@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ReviewStep } from '@/features/create-project/steps/review-step';
 import { CONSENT_DEFINITIONS } from '@/lib/consent/definitions';
@@ -80,6 +80,41 @@ describe('ReviewStep consent gate', () => {
     expect(consentCheckbox('has_likeness_permission')).not.toBeChecked();
     expect(consentCheckbox('ai_processing_consent')).not.toBeChecked();
     expect(consentCheckbox('portfolio_permission')).not.toBeChecked();
+  });
+
+  /**
+   * e2e/authenticated-journey.spec.ts targets the consent validation message via
+   * `getByRole('group', { name: 'Consent' }).getByRole('alert')`, because a bare
+   * getByRole('alert') also matches the role="alert" route announcer Next.js
+   * injects into every page. That locator only works while the fieldset keeps
+   * its sr-only legend, so the structure is pinned here rather than left to be
+   * rediscovered the next time the E2E suite goes red.
+   */
+  it('exposes the consent controls as a group named "Consent", with its alert inside', async () => {
+    const user = userEvent.setup();
+    renderStep();
+
+    const group = screen.getByRole('group', { name: 'Consent' });
+    expect(group).toBeInTheDocument();
+
+    // Every consent checkbox lives inside that group.
+    for (const definition of CONSENT_DEFINITIONS) {
+      expect(
+        within(group).getByRole('checkbox', {
+          name: new RegExp(definition.statement.slice(0, 40), 'i'),
+        }),
+      ).toBeInTheDocument();
+    }
+
+    // No alert until submission is attempted…
+    expect(within(group).queryByRole('alert')).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: /submit project/i }));
+
+    // …and then exactly one, inside the group, carrying the validation message.
+    const alerts = within(group).getAllByRole('alert');
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toHaveTextContent(/required confirmations/i);
   });
 
   it('refuses to submit until both required consents are given', async () => {

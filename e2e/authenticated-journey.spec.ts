@@ -52,9 +52,11 @@ test.describe('Customer A journey', () => {
     expect(imageSrc, 'reference images must be served through a signed URL').toContain('token=');
     expect(imageSrc).not.toContain('/object/public/');
 
-    // And it appears on the dashboard.
+    // And it appears on the dashboard. Each project is a link whose accessible
+    // name contains its reference; getByText would also match every ancestor
+    // that merely contains it.
     await page.goto('/dashboard');
-    await expect(page.getByText(reference)).toBeVisible();
+    await expect(page.getByRole('link', { name: new RegExp(reference) })).toBeVisible();
   });
 
   test('a project cannot be submitted without both required consents', async ({ page }) => {
@@ -83,16 +85,36 @@ test.describe('Customer A journey', () => {
     await expect(uploaded).toHaveCount(before + 1, { timeout: 30_000 });
     await page.getByRole('button', { name: /Continue to review/ }).click();
 
-    // Submitting with nothing ticked must be refused, and must not navigate.
     await expect(page.getByRole('heading', { name: /Check it over/ })).toBeVisible();
+
+    // The consent controls sit in a <fieldset> whose sr-only <legend> is
+    // "Consent", so this is role="group" named "Consent". Scoping to it targets
+    // the validation alert rather than Next's role="alert" route announcer.
+    const consent = page.getByRole('group', { name: 'Consent' });
+    const consentAlert = consent.getByRole('alert');
+
+    // Nothing ticked: refused, and no navigation.
     await page.getByRole('button', { name: 'Submit Project' }).click();
-    await expect(page.getByRole('alert')).toContainText(/required confirmations/i);
+    await expect(consentAlert).toContainText(/required confirmations/i);
     await expect(page).toHaveURL(/\/create/);
 
-    // One of the two is still not enough.
+    // One of the two is still not enough: still refused, still on /create.
     await page.getByRole('checkbox', { name: /I confirm that I am the person shown/ }).click();
     await page.getByRole('button', { name: 'Submit Project' }).click();
     await expect(page).toHaveURL(/\/create/);
+    await expect(page.getByRole('heading', { name: /Check it over/ })).toBeVisible();
+
+    // This spec deliberately stops here rather than ticking the second box and
+    // submitting. The positive case — both consents given, submission succeeds —
+    // is already covered by "briefs, uploads, consents, submits" above, and
+    // submitting again would leave a second persistent project behind on every
+    // run of a suite that shares one live project.
+    //
+    // The draft this spec leaves is reclaimed by the next run: /create resumes
+    // the most recent draft rather than starting another.
+    await expect(
+      page.getByRole('checkbox', { name: /I consent to these images being processed/ }),
+    ).not.toBeChecked();
   });
 
   test('is redirected away from the admin area', async ({ page }) => {
@@ -122,7 +144,7 @@ test.describe('Customer B isolation', () => {
 
     expect(reference).toMatch(/^AVS-\d{6}$/);
     await page.goto('/dashboard');
-    await expect(page.getByText(reference)).toBeVisible();
+    await expect(page.getByRole('link', { name: new RegExp(reference) })).toBeVisible();
   });
 
   test('B cannot open A’s project by changing the URL', async ({ page, browser }) => {
@@ -139,19 +161,32 @@ test.describe('Customer B isolation', () => {
     await page.goto(projectUrl);
 
     await expect(page.getByRole('heading', { name: /We could not find that\./ })).toBeVisible();
+    // Nothing of A's project may appear anywhere on the page B is served.
     await expect(page.getByText(brief)).toHaveCount(0);
     await expect(page.getByText(reference)).toHaveCount(0);
   });
 
-  test('B’s dashboard shows only B’s projects', async ({ page }) => {
+  test('every project on B’s dashboard is one B can actually open', async ({ page }) => {
     await signIn(page, CUSTOMER_B);
-    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1 })).toContainText(/Welcome back/);
 
-    // Nothing on B's dashboard may reference a project B does not own. The
-    // strongest available browser-side check is that every project link on the
-    // page resolves for B rather than 404-ing.
-    const links = await page.getByRole('link', { name: /Open|project/i }).all();
-    expect(links.length).toBeGreaterThanOrEqual(0);
+    const projectLinks = page.getByRole('link', { name: /AVS-\d{6}/ });
+    const count = await projectLinks.count();
+
+    if (count === 0) {
+      // An empty dashboard is a valid state, but it must be the empty state —
+      // not a silent pass because the list failed to render.
+      await expect(page.getByText(/No projects yet/)).toBeVisible();
+      return;
+    }
+
+    // A project RLS hides never reaches this list in the first place. Opening
+    // one proves the list and the detail page agree on what B owns: if the
+    // dashboard ever leaked another customer's project, this would 404.
+    await projectLinks.first().click();
+    await expect(page).toHaveURL(/\/dashboard\/projects\/[0-9a-f-]+/);
+    await expect(page.getByRole('heading', { name: /We could not find that\./ })).toHaveCount(0);
+    await expect(page.getByText(/^AVS-\d{6}$/)).toBeVisible();
   });
 });
 
@@ -170,34 +205,64 @@ test.describe('Admin', () => {
     page,
     browser,
   }) => {
-    test.skip(!hasCustomerA, SKIP_CUSTOMER_A);
-
-    // A submits something for the admin to act on.
-    const contextA = await browser.newContext();
-    const pageA = await contextA.newPage();
-    await signIn(pageA, CUSTOMER_A, '/create');
-    const brief = `Admin transition probe ${Date.now()}: a composed founder portrait in motion, restrained and boardroom-ready.`;
-    const { reference } = await createAndSubmitProject(pageA, brief);
-    await contextA.close();
-
     await signIn(page, ADMIN);
     await page.goto('/admin');
-    await expect(page.getByText(reference)).toBeVisible();
 
-    await page
-      .getByRole('row', { name: new RegExp(reference) })
-      .getByRole('link')
-      .click();
-    await expect(page.getByText(brief)).toBeVisible();
+    // Reuse a project already awaiting review rather than submitting a new one.
+    //
+    // This suite runs against one shared live project, and Playwright retries
+    // failed tests in CI. When this spec created its own project, a failure in
+    // the assertions below meant each retry submitted another — which is how a
+    // single failing run left AVS-000006, -000007 and -000008 behind. Reusing
+    // the queue makes the spec idempotent: retries act on the same row, and
+    // repeat runs stop accumulating rows at all.
+    //
+    // Filtering on a `cell` named exactly "Submitted" deliberately excludes the
+    // header row, whose "Submitted" is a `columnheader` for the date column.
+    const submittedRows = page
+      .getByRole('row')
+      .filter({ has: page.getByRole('cell', { name: 'Submitted', exact: true }) });
+
+    if ((await submittedRows.count()) === 0) {
+      // Nothing in the queue — seed exactly one. Only happens on a fresh
+      // project, or when this spec is run in isolation.
+      test.skip(!hasCustomerA, SKIP_CUSTOMER_A);
+
+      const contextA = await browser.newContext();
+      const pageA = await contextA.newPage();
+      await signIn(pageA, CUSTOMER_A, '/create');
+      await createAndSubmitProject(
+        pageA,
+        `Admin queue seed ${Date.now()}: a composed founder portrait in motion, restrained and boardroom-ready.`,
+      );
+      await contextA.close();
+
+      await page.reload();
+      await expect(submittedRows.first()).toBeVisible({ timeout: 20_000 });
+    }
+
+    const row = submittedRows.first();
+    await expect(row).toBeVisible();
+
+    // The reference appears twice in a row: the visible cell, and the sr-only
+    // text inside the "Open" link. Reading it from the anchored cell is
+    // unambiguous — and the sr-only text stays exactly where it is, because it
+    // is what makes that link usable by a screen reader.
+    const reference = ((await row.getByText(/^AVS-\d{6}$/).textContent()) ?? '').trim();
+    expect(reference).toMatch(/^AVS-\d{6}$/);
+
+    await row.getByRole('link', { name: /Open/ }).click();
+
+    await expect(page).toHaveURL(/\/admin\/projects\/[0-9a-f-]+/);
+    await expect(page.getByText(reference)).toBeVisible();
 
     // SUBMITTED -> ASSETS_REVIEW is permitted by the workflow.
     await page.getByRole('button', { name: /Move to Assets in review/ }).click();
-    await expect(page.getByText('Assets in review').first()).toBeVisible({ timeout: 20_000 });
 
-    // The history the trigger wrote is visible on the admin page.
-    await expect(page.getByText('SUBMITTED → ASSETS_REVIEW')).toBeVisible();
+    // The history the database trigger wrote, on the page, after the move.
+    await expect(page.getByText('SUBMITTED → ASSETS_REVIEW')).toBeVisible({ timeout: 20_000 });
 
-    // A transition that skips production is not even offered.
+    // A transition that skips production is not offered at all.
     await expect(page.getByRole('button', { name: /Move to Completed/ })).toHaveCount(0);
   });
 });

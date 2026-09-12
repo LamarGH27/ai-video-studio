@@ -382,9 +382,41 @@ Most likely leftover state — see [Housekeeping](#housekeeping).
 
 ## Housekeeping
 
-The Playwright specs submit real projects and do not delete them, so test data
-accumulates in the non-production project with every run. That is harmless, but
-an abandoned **draft** can make a later run behave differently, because
+### What each run leaves behind
+
+The Playwright specs submit real projects and do not delete them. Cleanup would
+need to read and delete across customers, which only a service-role key could
+do — and introducing one purely to tidy test rows would put a
+Row-Level-Security-bypassing credential into CI to solve a housekeeping problem.
+That trade is not worth making, so the accumulation is deliberate and bounded:
+
+| Spec                                            | Leaves behind                       |
+| ----------------------------------------------- | ----------------------------------- |
+| Customer A — briefs, uploads, consents, submits | 1 submitted project (A)             |
+| Customer A — consent gate                       | 1 **draft** (A), reclaimed next run |
+| Customer B — creates their own project          | 1 submitted project (B)             |
+| Customer B — cannot open A's project            | 1 submitted project (A)             |
+| Admin — status transition                       | **nothing** — it reuses the queue   |
+
+So roughly **three submitted projects per full run**, each with one small
+reference image, plus one draft that the next run picks up again rather than
+duplicating.
+
+Two things keep that from growing faster than it needs to:
+
+- The admin spec **reuses** an existing project awaiting review instead of
+  submitting its own. It used to create one, and because Playwright retries
+  failed tests in CI, a single failing run left three projects behind
+  (`AVS-000006`, `-000007`, `-000008`). Retries now act on the same row.
+- `/create` resumes the most recent draft, so a spec that stops mid-flow
+  contributes one draft in total, not one per run.
+
+`scripts/verify-live.ts` is separate: it creates its own projects and storage
+objects and deletes them again before it exits.
+
+### Clearing it down
+
+An abandoned **draft** can make a later run behave differently, because
 reopening `/create` resumes the most recent draft.
 
 Clear the test principals' data between runs when you want a clean slate:
