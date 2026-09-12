@@ -44,13 +44,44 @@ test.describe('delivery lifecycle', () => {
   }
 
   /**
+   * The admin page states the next action twice by design: once as the panel's
+   * heading, and again as the label on the control that performs it. Both are
+   * correct — the heading tells you what stage you are at, the button does it —
+   * so the test has to say which one it means rather than the markup being
+   * changed to suit it.
+   *
+   * Every admin assertion below is therefore anchored to the region it belongs
+   * to. The regions are the page's own landmarks (`<section>` with an
+   * accessible name), so this is reading the page the way a screen reader does,
+   * not adding hooks for the test.
+   */
+  const nextAction = (page: Page) => page.getByRole('region', { name: 'Next production action' });
+  const previewList = (page: Page) => page.getByRole('region', { name: 'Previews' });
+
+  /**
+   * The panel's heading — what stage the project is at.
+   *
+   * Restricted to the panel's prose rather than anything in the region, because
+   * the region deliberately contains both: for a stage whose action is an
+   * upload, `getByText` inside it would still match the heading AND the button.
+   * Narrowing to <p> separates the sentence from the control, so this helper
+   * cannot become ambiguous when a future stage gains a button of the same name.
+   */
+  const stage = (page: Page, label: string) =>
+    nextAction(page).locator('p').filter({ hasText: label });
+
+  /** The control that performs it. */
+  const actionButton = (page: Page, label: string) =>
+    nextAction(page).getByRole('button', { name: label });
+
+  /**
    * Selects a file for the admin uploader. It does NOT wait for completion —
    * the upload button keeps its place throughout, so waiting on it would return
    * immediately and prove nothing. Each caller waits on the real consequence
    * instead (the status changing, or the new delivery appearing).
    */
   async function chooseDeliveryFile(page: Page) {
-    await page.setInputFiles('input[type="file"]', {
+    await nextAction(page).locator('input[type="file"]').setInputFiles({
       name: 'delivery.mp4',
       mimeType: 'video/mp4',
       buffer: tinyMp4(),
@@ -72,19 +103,20 @@ test.describe('delivery lifecycle', () => {
     await openAdminProject(page, reference);
 
     await expect(page.getByRole('heading', { name: 'Next production action' })).toBeVisible();
-    await expect(page.getByText('Start Asset Review')).toBeVisible();
+    await expect(stage(page, 'Start Asset Review')).toBeVisible();
 
     await page.getByRole('button', { name: /Move to Assets in review/ }).click();
-    await expect(page.getByText('Begin Production')).toBeVisible({ timeout: 20_000 });
+    await expect(stage(page, 'Begin Production')).toBeVisible({ timeout: 20_000 });
 
     await page.getByRole('button', { name: /Move to In production/ }).click();
-    await expect(page.getByText('Upload Preview')).toBeVisible({ timeout: 20_000 });
+    // The button, not the heading: readiness means the control is there to use.
+    await expect(actionButton(page, 'Upload Preview')).toBeVisible({ timeout: 20_000 });
 
     // ------------------------------------------------- admin: upload preview 1
     await chooseDeliveryFile(page);
     // Uploading a preview is what moves the project to Preview ready.
-    await expect(page.getByText('Waiting for customer')).toBeVisible({ timeout: 90_000 });
-    await expect(page.getByText('Preview 1')).toBeVisible();
+    await expect(stage(page, 'Waiting for customer')).toBeVisible({ timeout: 90_000 });
+    await expect(previewList(page).getByText('Preview 1')).toBeVisible();
 
     // ------------------------------------------- customer A: request a revision
     await pageA.goto(projectUrl);
@@ -110,27 +142,35 @@ test.describe('delivery lifecycle', () => {
     await pageA.getByLabel(/What would you like changed/).fill(revisionMessage);
     await pageA.getByRole('button', { name: /Send revision request/ }).click();
 
-    await expect(pageA.getByText(revisionMessage)).toBeVisible({ timeout: 30_000 });
-    await expect(pageA.getByText('Your changes are with the team.')).toBeVisible();
+    const customerRevisions = pageA.getByRole('region', { name: 'Changes you have requested' });
+    await expect(customerRevisions.getByText(revisionMessage)).toBeVisible({ timeout: 30_000 });
+    await expect(
+      pageA.getByRole('heading', { name: 'Your changes are with the team.' }),
+    ).toBeVisible();
     // The decision controls are gone now that the ball is not in their court.
     await expect(pageA.getByRole('button', { name: 'Approve Preview' })).toHaveCount(0);
 
     // ------------------------------------------------- admin: rework and re-deliver
     await page.reload();
-    await expect(page.getByText('The customer has requested changes')).toBeVisible({
-      timeout: 20_000,
-    });
-    await expect(page.getByText(revisionMessage)).toBeVisible();
-    await expect(page.getByText('Begin Revision')).toBeVisible();
+    // The request appears twice on this page — as the alert that demands
+    // attention, and again in the permanent history below. Assert on the alert,
+    // and that the message is inside it rather than merely somewhere on the
+    // page: "the admin was told" is the thing being tested.
+    const revisionAlert = page
+      .getByRole('alert')
+      .filter({ hasText: 'The customer has requested changes' });
+    await expect(revisionAlert).toBeVisible({ timeout: 20_000 });
+    await expect(revisionAlert).toContainText(revisionMessage);
+    await expect(stage(page, 'Begin Revision')).toBeVisible();
 
     await page.getByRole('button', { name: /Move to In production/ }).click();
-    await expect(page.getByText('Upload Preview')).toBeVisible({ timeout: 20_000 });
+    await expect(actionButton(page, 'Upload Preview')).toBeVisible({ timeout: 20_000 });
 
     await chooseDeliveryFile(page);
-    await expect(page.getByText('Waiting for customer')).toBeVisible({ timeout: 90_000 });
-    await expect(page.getByText('Preview 2')).toBeVisible();
+    await expect(stage(page, 'Waiting for customer')).toBeVisible({ timeout: 90_000 });
+    await expect(previewList(page).getByText('Preview 2')).toBeVisible();
     // Preview 1 is kept: a new preview is a new object, never an overwrite.
-    await expect(page.getByText('Preview 1')).toBeVisible();
+    await expect(previewList(page).getByText('Preview 1')).toBeVisible();
 
     // ------------------------------------------------- customer A: approve
     await pageA.goto(projectUrl);
@@ -148,7 +188,7 @@ test.describe('delivery lifecycle', () => {
 
     // ------------------------------------------------- admin: final delivery
     await page.reload();
-    await expect(page.getByText('Upload Final Video')).toBeVisible({ timeout: 20_000 });
+    await expect(actionButton(page, 'Upload Final Video')).toBeVisible({ timeout: 20_000 });
 
     await chooseDeliveryFile(page);
     // The final does NOT auto-complete: the admin confirms completion.
@@ -156,9 +196,9 @@ test.describe('delivery lifecycle', () => {
       timeout: 90_000,
     });
     await page.getByRole('button', { name: /Move to Completed/ }).click();
-    await expect(page.getByText(/Delivered\. Nothing further is required\./)).toBeVisible({
-      timeout: 30_000,
-    });
+    await expect(
+      nextAction(page).getByText(/Delivered\. Nothing further is required\./),
+    ).toBeVisible({ timeout: 30_000 });
 
     // ------------------------------------------------- customer A: the film
     await pageA.goto(projectUrl);
@@ -184,7 +224,9 @@ test.describe('delivery lifecycle', () => {
     expect(download.headers()['cache-control']).toContain('no-store');
 
     // The whole journey is on the record.
-    await expect(pageA.getByText(revisionMessage)).toBeVisible();
+    await expect(
+      pageA.getByRole('region', { name: 'Changes you have requested' }).getByText(revisionMessage),
+    ).toBeVisible();
 
     // ------------------------------------------------- customer B: nothing
     const contextB = await browser.newContext();
