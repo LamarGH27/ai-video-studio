@@ -274,6 +274,14 @@ the table GRANTs Supabase issues, without which every statement would fail with
 "permission denied" and appear to pass while testing nothing). `attempt()`
 additionally refuses to run as a `BYPASSRLS` role for the same reason.
 
+`supabase/tests/concurrency/` runs last, and is the one part that does not run
+inside a single transaction — it drives **two live connections** and interleaves
+them by hand, because the rest of the suite is sequential by construction (`SET
+LOCAL ROLE` is how a request is impersonated, and autocommit would discard it).
+It observes that a delivery insert blocks on the project row while a customer
+decision on the same project is in flight, and is refused outright once that
+decision commits. Its assertions are counted with all the others.
+
 Requires PostgreSQL 16 server binaries (`initdb`, `pg_ctl`, `psql`).
 
 ### 3. Live verification — `npm run verify:live`

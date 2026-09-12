@@ -593,7 +593,10 @@ enforces MIME and size limits — is exactly what `npm run verify:live` covers.
 Two guards exist because a security suite that passes for the wrong reason is
 worse than none: the harness replicates the table GRANTs Supabase issues (so a
 denial is RLS and not a missing grant), and `avs_test.attempt()` refuses to run
-as a `BYPASSRLS` role at all.
+as a `BYPASSRLS` role at all. A third part, `supabase/tests/concurrency/`,
+steps outside the single-transaction model entirely and interleaves two live
+connections, which is the only way to observe that a delivery write and a
+customer decision on the same project serialise rather than overlap.
 
 ---
 

@@ -59,6 +59,43 @@ select avs_test.attempt('Delivery writes', 'Customer creates a delivery on B''s 
 -- =============================================================================
 select avs_test.become('admin');
 
+-- A FINAL_VIDEO before the customer has approved anything. 'a_production' is
+-- IN_PRODUCTION here, which is the status a preview belongs to — so this also
+-- shows the two delivery types are not interchangeable.
+select avs_test.attempt('Delivery stage', 'Admin creates a FINAL_VIDEO while IN_PRODUCTION', 'DENIED',
+  $$ insert into public.project_assets
+       (project_id, user_id, asset_type, storage_bucket, storage_path, mime_type, file_size)
+     values (avs_test.id('a_production'), avs_test.id('customer_a'), 'FINAL_VIDEO',
+             'project-deliveries',
+             'aaaaaaaa-0000-4000-8000-00000000000a/77777777-0000-4000-8000-000000000007/early-final.mp4',
+             'video/mp4', 9000000) $$);
+
+-- And neither delivery type may be created against a project that has not even
+-- reached production. 'a_submitted' is SUBMITTED.
+select avs_test.attempt('Delivery stage', 'Admin creates a FINAL_VIDEO while SUBMITTED', 'DENIED',
+  $$ insert into public.project_assets
+       (project_id, user_id, asset_type, storage_bucket, storage_path, mime_type, file_size)
+     values (avs_test.id('a_submitted'), avs_test.id('customer_a'), 'FINAL_VIDEO',
+             'project-deliveries',
+             'aaaaaaaa-0000-4000-8000-00000000000a/11111111-0000-4000-8000-000000000001/early-final.mp4',
+             'video/mp4', 9000000) $$);
+
+select avs_test.attempt('Delivery stage', 'Admin creates a PREVIEW_VIDEO while SUBMITTED', 'DENIED',
+  $$ insert into public.project_assets
+       (project_id, user_id, asset_type, storage_bucket, storage_path, mime_type, file_size)
+     values (avs_test.id('a_submitted'), avs_test.id('customer_a'), 'PREVIEW_VIDEO',
+             'project-deliveries',
+             'aaaaaaaa-0000-4000-8000-00000000000a/11111111-0000-4000-8000-000000000001/early-preview.mp4',
+             'video/mp4', 5000000) $$);
+
+-- The same rule, reached through the convenience RPC rather than a direct
+-- insert: the function is not a way around the trigger.
+select avs_test.attempt('Delivery stage', 'Admin calls record_delivery_asset for a FINAL while IN_PRODUCTION', 'DENIED',
+  $$ select public.record_delivery_asset(
+       avs_test.id('a_production'), 'FINAL_VIDEO',
+       'aaaaaaaa-0000-4000-8000-00000000000a/77777777-0000-4000-8000-000000000007/rpc-early-final.mp4',
+       'video/mp4', 'final.mp4', 9000000) $$);
+
 select avs_test.attempt('Invariants', 'PREVIEW_READY without any preview video', 'DENIED',
   $$ update public.projects set status = 'PREVIEW_READY'
      where id = avs_test.id('a_production') $$);
@@ -90,6 +127,59 @@ $$;
 select avs_test.attempt('Invariants', 'PREVIEW_READY once a preview exists', 'ALLOWED',
   $$ update public.projects set status = 'PREVIEW_READY'
      where id = avs_test.id('a_production') $$);
+
+-- The project is now PREVIEW_READY, which is the status in which the customer
+-- may approve. A second preview must NOT be creatable here — this is what makes
+-- the stale-approval race structurally impossible rather than merely unlikely:
+-- there is no state in which a customer can be deciding while a new preview
+-- appears. Both the direct insert and the RPC are refused.
+select avs_test.attempt('Delivery stage', 'Admin creates a PREVIEW_VIDEO while PREVIEW_READY', 'DENIED',
+  $$ insert into public.project_assets
+       (project_id, user_id, asset_type, storage_bucket, storage_path, mime_type, file_size)
+     values (avs_test.id('a_production'), avs_test.id('customer_a'), 'PREVIEW_VIDEO',
+             'project-deliveries',
+             'aaaaaaaa-0000-4000-8000-00000000000a/77777777-0000-4000-8000-000000000007/preview-v2-too-soon.mp4',
+             'video/mp4', 5100000) $$);
+
+select avs_test.attempt('Delivery stage', 'Admin calls record_delivery_asset for a preview while PREVIEW_READY', 'DENIED',
+  $$ select public.record_delivery_asset(
+       avs_test.id('a_production'), 'PREVIEW_VIDEO',
+       'aaaaaaaa-0000-4000-8000-00000000000a/77777777-0000-4000-8000-000000000007/rpc-preview-v2-too-soon.mp4',
+       'video/mp4', 'preview.mp4', 5100000) $$);
+
+select avs_test.attempt('Delivery stage', 'Admin creates a FINAL_VIDEO while PREVIEW_READY', 'DENIED',
+  $$ insert into public.project_assets
+       (project_id, user_id, asset_type, storage_bucket, storage_path, mime_type, file_size)
+     values (avs_test.id('a_production'), avs_test.id('customer_a'), 'FINAL_VIDEO',
+             'project-deliveries',
+             'aaaaaaaa-0000-4000-8000-00000000000a/77777777-0000-4000-8000-000000000007/final-too-soon.mp4',
+             'video/mp4', 9000000) $$);
+
+-- Customers are refused by RLS before the stage rule is ever consulted, and are
+-- refused in the status where a delivery WOULD be legal for an administrator.
+select avs_test.become('customer_a');
+
+select avs_test.attempt('Delivery stage', 'Customer creates a PREVIEW_VIDEO on their own project', 'DENIED',
+  $$ insert into public.project_assets
+       (project_id, user_id, asset_type, storage_bucket, storage_path, mime_type, file_size)
+     values (avs_test.id('a_production'), avs_test.id('customer_a'), 'PREVIEW_VIDEO',
+             'project-deliveries', 'a/customer-preview.mp4', 'video/mp4', 5000000) $$);
+
+select avs_test.attempt('Delivery stage', 'Customer creates a FINAL_VIDEO on their own project', 'DENIED',
+  $$ insert into public.project_assets
+       (project_id, user_id, asset_type, storage_bucket, storage_path, mime_type, file_size)
+     values (avs_test.id('a_production'), avs_test.id('customer_a'), 'FINAL_VIDEO',
+             'project-deliveries', 'a/customer-final.mp4', 'video/mp4', 9000000) $$);
+
+-- Nor through the administrator's convenience RPC, which checks is_admin()
+-- itself rather than relying on the grant alone.
+select avs_test.attempt('Delivery stage', 'Customer calls record_delivery_asset', 'DENIED',
+  $$ select public.record_delivery_asset(
+       avs_test.id('a_production'), 'PREVIEW_VIDEO',
+       'aaaaaaaa-0000-4000-8000-00000000000a/77777777-0000-4000-8000-000000000007/customer-rpc.mp4',
+       'video/mp4', 'preview.mp4', 5000000) $$);
+
+select avs_test.become('admin');
 
 -- =============================================================================
 -- 3. The customer's decisions are theirs alone.
@@ -540,6 +630,112 @@ begin
     'Audit trail', 'Every accepted transition of the full delivery lifecycle is recorded, in order',
     'ALLOWED (' || expected || ')',
     case when ok then 'ALLOWED' else 'DENIED' end || ' (' || coalesce(path, 'no rows') || ')',
+    ok);
+end;
+$$;
+
+-- =============================================================================
+-- 12. The administrator's atomic upload path, end to end.
+-- =============================================================================
+-- record_delivery_asset() is what the application calls. It exists so that
+-- creating the asset and announcing it are one transaction holding one lock,
+-- rather than two requests with a gap between them. On its own project, so none
+-- of the assertions above depend on it.
+select avs_test.become_postgres();
+
+insert into avs_test.ids (k, v) values
+  ('b_rpc', '99999999-0000-4000-8000-000000000009')
+on conflict (k) do nothing;
+
+insert into public.projects
+  (id, user_id, status, brief, orientation, desired_duration_seconds, submitted_at)
+values
+  (avs_test.id('b_rpc'), avs_test.id('customer_b'), 'IN_PRODUCTION',
+   'Customer B project used for the administrator upload RPC, with a brief long enough to pass.',
+   'LANDSCAPE_16_9', 20, now())
+on conflict (id) do nothing;
+
+select avs_test.become('admin');
+
+select avs_test.attempt('Delivery stage', 'Admin records a PREVIEW_VIDEO while IN_PRODUCTION', 'ALLOWED',
+  $$ select public.record_delivery_asset(
+       avs_test.id('b_rpc'), 'PREVIEW_VIDEO',
+       'bbbbbbbb-0000-4000-8000-00000000000b/99999999-0000-4000-8000-000000000009/preview-v1.mp4',
+       'video/mp4', 'preview.mp4', 5000000) $$);
+
+-- Atomic: the asset exists AND the project moved, in one transaction. There is
+-- no moment in which a preview exists against a project nobody was told about.
+do $$
+declare v_status public.project_status; v_version int; ok boolean;
+begin
+  perform avs_test.become_postgres();
+  select status into v_status from public.projects where id = avs_test.id('b_rpc');
+  select version into v_version from public.project_assets
+  where project_id = avs_test.id('b_rpc') and asset_type = 'PREVIEW_VIDEO';
+
+  ok := v_status = 'PREVIEW_READY' and v_version = 1;
+
+  insert into avs_test.results (area, attack, expected, actual, pass) values (
+    'Delivery stage', 'Recording a preview creates version 1 and moves the project in one transaction',
+    'ALLOWED (PREVIEW_READY, version 1)',
+    format('%s (%s, version %s)',
+           case when ok then 'ALLOWED' else 'DENIED' end, v_status, v_version),
+    ok);
+end;
+$$;
+
+-- The arguments are untrusted even though this application generated them.
+select avs_test.become('admin');
+
+select avs_test.attempt('Delivery stage', 'Admin records a delivery into another customer''s folder', 'DENIED',
+  $$ select public.record_delivery_asset(
+       avs_test.id('b_rpc'), 'FINAL_VIDEO',
+       'aaaaaaaa-0000-4000-8000-00000000000a/99999999-0000-4000-8000-000000000009/final-v1.mp4',
+       'video/mp4', 'final.mp4', 9000000) $$);
+
+select avs_test.attempt('Delivery stage', 'Admin records a delivery that is not a video', 'DENIED',
+  $$ select public.record_delivery_asset(
+       avs_test.id('b_rpc'), 'FINAL_VIDEO',
+       'bbbbbbbb-0000-4000-8000-00000000000b/99999999-0000-4000-8000-000000000009/final-v1.exe',
+       'application/x-msdownload', 'final.exe', 9000000) $$);
+
+select avs_test.attempt('Delivery stage', 'Admin records a REFERENCE_IMAGE through the delivery RPC', 'DENIED',
+  $$ select public.record_delivery_asset(
+       avs_test.id('b_rpc'), 'REFERENCE_IMAGE',
+       'bbbbbbbb-0000-4000-8000-00000000000b/99999999-0000-4000-8000-000000000009/sneak.jpg',
+       'video/mp4', 'sneak.jpg', 1000) $$);
+
+-- Approval, then the final — which is where FINAL_VIDEO becomes legal.
+select avs_test.become('customer_b');
+
+select avs_test.attempt('Delivery stage', 'Owner approves the recorded preview', 'ALLOWED',
+  $$ select public.approve_preview(
+       avs_test.id('b_rpc'), avs_test.preview_id('b_rpc', 1)) $$);
+
+select avs_test.become('admin');
+
+select avs_test.attempt('Delivery stage', 'Admin records a FINAL_VIDEO while FINALISING', 'ALLOWED',
+  $$ select public.record_delivery_asset(
+       avs_test.id('b_rpc'), 'FINAL_VIDEO',
+       'bbbbbbbb-0000-4000-8000-00000000000b/99999999-0000-4000-8000-000000000009/final-v1.mp4',
+       'video/mp4', 'final.mp4', 9000000) $$);
+
+-- A final does NOT auto-complete: completion stays an explicit decision.
+do $$
+declare v_status public.project_status; v_finals int; ok boolean;
+begin
+  perform avs_test.become_postgres();
+  select status into v_status from public.projects where id = avs_test.id('b_rpc');
+  select count(*) into v_finals from public.project_assets
+  where project_id = avs_test.id('b_rpc') and asset_type = 'FINAL_VIDEO';
+
+  ok := v_status = 'FINALISING' and v_finals = 1;
+
+  insert into avs_test.results (area, attack, expected, actual, pass) values (
+    'Delivery stage', 'Recording a final does not complete the project by itself',
+    'ALLOWED (FINALISING, 1 final)',
+    format('%s (%s, %s final)',
+           case when ok then 'ALLOWED' else 'DENIED' end, v_status, v_finals),
     ok);
 end;
 $$;

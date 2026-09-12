@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
 import { requireAdmin } from '@/lib/auth/session';
+import { DELIVERY_UPLOAD_STATUS } from '@/lib/projects/status';
 import {
   MAX_DELIVERY_VIDEO_BYTES,
   MAX_DELIVERY_VIDEO_MB,
@@ -69,19 +70,23 @@ export async function requestDeliveryUploadSlotAction(
     return fail('NOT_FOUND', 'That project no longer exists.');
   }
 
-  // A preview belongs to production; a final belongs to finalising. Uploading
-  // either at the wrong moment would strand the project in a state its workflow
-  // does not describe.
-  if (
-    assetType === 'PREVIEW_VIDEO' &&
-    !['IN_PRODUCTION', 'PREVIEW_READY'].includes(project.status)
-  ) {
-    return fail('CONFLICT', 'A preview can only be uploaded while the project is in production.');
-  }
-  if (assetType === 'FINAL_VIDEO' && project.status !== 'FINALISING') {
+  // A preview belongs to production; a final belongs to finalising. This mirrors
+  // the trigger enforce_delivery_asset_status(), which is what actually enforces
+  // it — the check here exists so the administrator is told before they wait for
+  // an upload, not because the rule is trusted to this layer. If the two ever
+  // disagree the database wins, and the upload is simply rejected on confirm.
+  //
+  // PREVIEW_READY is deliberately NOT a status a preview may be uploaded in.
+  // While the project is PREVIEW_READY the customer may be part-way through
+  // deciding, and a replacement landing underneath them is the whole problem.
+  // Rework goes back through IN_PRODUCTION, which the customer's revision
+  // request is what opens.
+  if (project.status !== DELIVERY_UPLOAD_STATUS[assetType]) {
     return fail(
       'CONFLICT',
-      'A final video can only be uploaded once the customer has approved a preview.',
+      assetType === 'PREVIEW_VIDEO'
+        ? 'A preview can only be uploaded while the project is in production.'
+        : 'A final video can only be uploaded once the customer has approved a preview.',
     );
   }
 
@@ -124,9 +129,11 @@ export async function requestDeliveryUploadSlotAction(
  * come from Storage's own metadata, not from what the browser claimed. Anything
  * outside policy is deleted rather than left orphaned.
  *
- * Uploading a preview moves the project to PREVIEW_READY in the same action,
- * because a preview nobody is told about is not a delivery. The final video
- * does NOT auto-complete: the administrator confirms completion explicitly.
+ * The recording itself is a single database function so that creating the asset
+ * and announcing it are one transaction holding one lock on the project row —
+ * see record_delivery_asset() in migration 000600. A preview nobody is told
+ * about is not a delivery. The final video does NOT auto-complete: the
+ * administrator confirms completion explicitly.
  */
 export async function confirmDeliveryUploadAction(
   input: ConfirmDeliveryUploadInput,
@@ -182,56 +189,45 @@ export async function confirmDeliveryUploadAction(
     return fail('VALIDATION', `Each video must be ${MAX_DELIVERY_VIDEO_MB} MB or smaller.`);
   }
 
-  const { data: asset, error } = await supabase
-    .from('project_assets')
-    .insert({
-      project_id: projectId,
-      // The CUSTOMER owns the asset row, not the uploading admin: it is what
-      // their read policy keys on, and a database trigger enforces it.
-      user_id: project.user_id,
-      asset_type: assetType,
-      storage_bucket: PROJECT_DELIVERIES_BUCKET,
-      storage_path: storagePath,
-      mime_type: actualMimeType,
-      original_filename: sanitiseOriginalFilename(originalFilename),
-      file_size: actualSize,
-    })
-    .select('id, version')
-    .maybeSingle();
+  // One call, one transaction, one lock. record_delivery_asset() takes the
+  // project row FOR UPDATE, re-checks the status against that locked row,
+  // inserts the asset and — for a preview — moves the project to PREVIEW_READY.
+  // Doing this as an insert followed by an update would be two transactions with
+  // a gap between them, in which a preview exists against a project nobody has
+  // been told about.
+  //
+  // The values it is given are the ones Storage reported, not the ones the
+  // browser claimed, and it re-derives the owner and the version itself.
+  const { data: recorded, error } = await supabase.rpc('record_delivery_asset', {
+    p_project_id: projectId,
+    p_asset_type: assetType,
+    p_storage_path: storagePath,
+    p_mime_type: actualMimeType,
+    p_original_filename: sanitiseOriginalFilename(originalFilename),
+    p_file_size: actualSize,
+  });
 
-  if (error || !asset) {
+  if (error || !recorded) {
+    // Nothing was recorded, so the object is an orphan. Remove it rather than
+    // leave a video sitting in the customer's folder that no row accounts for.
     await removeObject();
-    return fail('ERROR', 'We could not record that upload. Try again.');
+    return fail(
+      'ERROR',
+      /in production|approved a preview/i.test(error?.message ?? '')
+        ? 'The project moved on while that was uploading. Reload and try again.'
+        : 'We could not record that upload. Try again.',
+    );
   }
 
-  let status = project.status;
-
-  // A new preview is what makes a project ready for the customer to look at,
-  // and it is what answers an open revision (a trigger resolves it).
-  if (assetType === 'PREVIEW_VIDEO' && project.status === 'IN_PRODUCTION') {
-    const { data: updated, error: transitionError } = await supabase
-      .from('projects')
-      .update({ status: 'PREVIEW_READY' })
-      .eq('id', projectId)
-      .eq('status', 'IN_PRODUCTION')
-      .select('status')
-      .maybeSingle();
-
-    if (transitionError || !updated) {
-      // The asset is recorded and valid; only the announcement failed. Leave it
-      // in place and let the admin retry the transition rather than deleting a
-      // perfectly good upload.
-      return fail(
-        'ERROR',
-        'The preview was uploaded but the project could not be moved to Preview ready. Try the status control.',
-      );
-    }
-    status = updated.status;
-  }
+  const { assetId, version, status } = recorded as {
+    assetId: string;
+    version: number;
+    status: string;
+  };
 
   revalidatePath('/admin');
   revalidatePath(`/admin/projects/${projectId}`);
   revalidatePath(`/dashboard/projects/${projectId}`);
 
-  return ok({ assetId: asset.id, version: asset.version, status });
+  return ok({ assetId, version, status });
 }

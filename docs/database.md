@@ -371,6 +371,48 @@ write. Rows come only from `approve_preview()`.
 
 ---
 
+### When a delivery may be created, and what serialises it
+
+`enforce_delivery_asset_status()` is a `BEFORE INSERT` trigger on
+`project_assets`. For the two delivery types it does exactly two things, in
+this order:
+
+1. `SELECT … FOR UPDATE` on the parent `public.projects` row.
+2. Refuses the insert unless the status is the one that stage belongs to —
+   `PREVIEW_VIDEO` requires `IN_PRODUCTION`, `FINAL_VIDEO` requires
+   `FINALISING` (`42501` otherwise).
+
+It fires as `project_assets_01_delivery_status`, before
+`project_assets_02_assign_version`, because the lock has to be held before the
+next version is computed. `BEFORE ROW` triggers fire in name order, which is
+what the numeric prefixes are for; a schema assertion checks that ordering
+rather than trusting the comment.
+
+There is no break-glass for direct connections here, unlike the status
+transition guard. This is a statement about workflow correctness rather than
+about privilege, and an operator with a `psql` prompt can always move the
+project first.
+
+**Why this closes the stale-approval race.** Both customer decisions require
+`PREVIEW_READY`. Creating a preview requires `IN_PRODUCTION`. And
+`PREVIEW_READY → IN_PRODUCTION` is not a legal transition — the only way back
+into production is `PREVIEW_READY → REVISION_REQUESTED → IN_PRODUCTION`, whose
+first step is itself an RPC that locks the project row. So there is no state in
+which a customer can be deciding while a new preview is created: the write is
+not merely unlikely to win the race, it is illegal in that status.
+
+The lock is the second line rather than the first. Every path that writes a
+delivery or changes a project's stage — the insert trigger,
+`record_delivery_asset()`, `approve_preview()`, `request_project_revision()` —
+takes the same exclusive lock on the same `projects` row, always before reading
+anything the decision depends on, and holds it to commit. Two of them on one
+project therefore serialise: the second waits, then re-reads. Lock order is
+`projects` first in every path, so they cannot deadlock against each other.
+`supabase/tests/concurrency/` drives two live connections to observe this
+directly.
+
+---
+
 ### The customer's two decisions
 
 `approve_preview(project_id, preview_asset_id)` and
@@ -451,6 +493,8 @@ no customer or public write path.
 | `enforce_child_owner_matches_project()` | trigger, SECURITY DEFINER | Keeps asset/consent `user_id` equal to the project owner                              |
 | `record_project_status_change()`        | trigger, SECURITY DEFINER | Writes `project_status_history`                                                       |
 | `generate_project_reference()`          | volatile                  | `AVS-` + 6-digit sequence value                                                       |
+| `enforce_delivery_asset_status()`       | trigger, SECURITY DEFINER | Locks the parent project and refuses a delivery created at the wrong stage            |
+| `record_delivery_asset()`               | SECURITY DEFINER          | Administrator delivery upload: lock, validate, insert and announce, atomically        |
 | `approve_preview()`                     | SECURITY DEFINER          | The customer's approval of a named preview; `EXECUTE` granted only to `authenticated` |
 | `request_project_revision()`            | SECURITY DEFINER          | The customer's revision request against a named preview; same grant                   |
 

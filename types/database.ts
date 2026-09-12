@@ -342,6 +342,20 @@ export interface Database {
       is_admin: { Args: Record<string, never>; Returns: boolean };
       // Atomic customer decisions. Each validates auth.uid(), ownership and the
       // expected current status inside the database — see migration 000600.
+      // Administrator delivery upload: locks the project, validates the stage,
+      // inserts the asset and moves the project — atomically. Returns
+      // { assetId, version, status }.
+      record_delivery_asset: {
+        Args: {
+          p_project_id: string;
+          p_asset_type: AssetType;
+          p_storage_path: string;
+          p_mime_type: string;
+          p_original_filename: string | null;
+          p_file_size: number;
+        };
+        Returns: { assetId: string; version: number; status: ProjectStatus };
+      };
       approve_preview: {
         Args: { p_project_id: string; p_preview_asset_id: string };
         Returns: string;

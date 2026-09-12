@@ -128,6 +128,29 @@ export const ALLOWED_STATUS_TRANSITIONS: Record<ProjectStatus, readonly ProjectS
 };
 
 /**
+ * The one status in which each kind of delivery may be created.
+ *
+ * This is a MIRROR. The authority is enforce_delivery_asset_status() in
+ * migration 000600, which locks the project row and refuses anything else for
+ * every caller — server action, direct PostgREST request, psql. This constant
+ * exists so the interface can offer the right control and the server action can
+ * fail early with a sentence rather than a constraint violation.
+ * tests/status-model-consistency.test.ts parses the migration and fails if the
+ * two ever disagree.
+ *
+ * PREVIEW_READY is deliberately absent. While a project is PREVIEW_READY the
+ * customer may be part-way through deciding on the preview in front of them,
+ * and a replacement arriving underneath them is exactly the problem the
+ * database now makes unreachable. Rework returns through IN_PRODUCTION.
+ */
+export const DELIVERY_UPLOAD_STATUS: Readonly<
+  Record<'PREVIEW_VIDEO' | 'FINAL_VIDEO', ProjectStatus>
+> = {
+  PREVIEW_VIDEO: 'IN_PRODUCTION',
+  FINAL_VIDEO: 'FINALISING',
+} as const;
+
+/**
  * Transitions that belong to the customer, not to staff.
  *
  * The database permits these — a customer performs them — but an administrator

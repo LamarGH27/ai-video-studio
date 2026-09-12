@@ -65,6 +65,13 @@ for suite in "$REPO_ROOT"/supabase/tests/0[1-9]_*.sql; do
   psql -q -v ON_ERROR_STOP=1 -f "$suite" >/dev/null
 done
 
+for script in "$REPO_ROOT"/supabase/tests/concurrency/*.sh; do
+  say "Running $(basename "$script")"
+  # Two live connections interleaved by hand. It appends its own rows to
+  # avs_test.results, so its assertions are counted with all the others.
+  "$script"
+done
+
 say "RESULTS"
 psql -X -P pager=off -c "
   select area as \"Area\",

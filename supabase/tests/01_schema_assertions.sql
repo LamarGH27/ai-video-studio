@@ -78,7 +78,7 @@ select avs_test.expect('RLS', 'project_assets rows are immutable (no UPDATE poli
 -- -----------------------------------------------------------------------------
 -- Functions and triggers
 -- -----------------------------------------------------------------------------
-select avs_test.expect('Functions', 'All expected functions exist', '15',
+select avs_test.expect('Functions', 'All expected functions exist', '17',
   (select count(*)::text from pg_proc
    where pronamespace = 'public'::regnamespace
      and proname in ('set_updated_at','request_jwt_role','is_admin','current_profile_role',
@@ -86,7 +86,8 @@ select avs_test.expect('Functions', 'All expected functions exist', '15',
                      'enforce_project_owner_immutable','enforce_child_owner_matches_project',
                      'record_project_status_change','generate_project_reference',
                      'allowed_status_transitions','enforce_project_status_transition',
-                     'assign_delivery_asset_version','approve_preview',
+                     'assign_delivery_asset_version','enforce_delivery_asset_status',
+                     'record_delivery_asset','approve_preview',
                      'request_project_revision')));
 
 -- A SECURITY DEFINER function without a pinned search_path can be hijacked by a
@@ -107,7 +108,7 @@ select avs_test.expect('Functions', 'Every public function pins search_path', '0
 select avs_test.expect('Functions', 'is_admin() is not executable by PUBLIC', 'false',
   (select has_function_privilege('public', 'public.is_admin()', 'EXECUTE')::text));
 
-select avs_test.expect('Triggers', 'All expected triggers exist', '16',
+select avs_test.expect('Triggers', 'All expected triggers exist', '17',
   (select count(*)::text from pg_trigger t
    join pg_class c on c.oid = t.tgrelid
    where not t.tgisinternal
@@ -118,9 +119,20 @@ select avs_test.expect('Triggers', 'All expected triggers exist', '16',
                       'project_assets_enforce_owner','project_consents_enforce_owner',
                       'projects_record_status_change','portfolio_items_set_updated_at',
                       'projects_enforce_status_transition',
-                      'project_assets_assign_version','projects_resolve_revisions',
+                      'project_assets_01_delivery_status','project_assets_02_assign_version',
+                      'projects_resolve_revisions',
                       'project_revisions_set_updated_at','project_revisions_enforce_owner',
                       'project_preview_approvals_enforce_owner')));
+
+-- The guard takes the lock, so it has to fire before the version is computed.
+-- BEFORE ROW triggers fire in name order, so this asserts the name order rather
+-- than trusting a comment to stay true.
+select avs_test.expect('Triggers', 'The delivery status guard fires before the version is assigned', 'true',
+  (select (min(t.tgname) filter (where t.tgfoid = 'public.enforce_delivery_asset_status'::regproc)
+           < min(t.tgname) filter (where t.tgfoid = 'public.assign_delivery_asset_version'::regproc))::text
+   from pg_trigger t
+   where t.tgrelid = 'public.project_assets'::regclass
+     and not t.tgisinternal));
 
 -- -----------------------------------------------------------------------------
 -- Constraints that carry security or integrity weight
@@ -204,6 +216,11 @@ select avs_test.expect('Delivery', 'No unguarded request_project_revision(uuid, 
    where pronamespace = 'public'::regnamespace
      and proname = 'request_project_revision'
      and pg_get_function_identity_arguments(oid) = 'p_project_id uuid, p_message text'));
+
+select avs_test.expect('Delivery', 'record_delivery_asset is not executable by PUBLIC', 'false',
+  (select has_function_privilege('public',
+    'public.record_delivery_asset(uuid, public.asset_type, text, text, text, bigint)',
+    'EXECUTE')::text));
 
 -- Exactly one of each, so there is only ever one way in.
 select avs_test.expect('Delivery', 'Each customer RPC exists exactly once', '2',

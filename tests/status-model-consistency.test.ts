@@ -1,7 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { ALLOWED_STATUS_TRANSITIONS, PROJECT_STATUS_ORDER } from '@/lib/projects/status';
+import {
+  ALLOWED_STATUS_TRANSITIONS,
+  DELIVERY_UPLOAD_STATUS,
+  PROJECT_STATUS_ORDER,
+  nextAdminAction,
+} from '@/lib/projects/status';
 import type { ProjectStatus } from '@/types/database';
 
 /**
@@ -76,8 +81,44 @@ function parseSqlTransitions(): Record<string, string[]> {
   return table;
 }
 
+/**
+ * The `if new.asset_type = 'X' and v_status <> 'Y'` rows of
+ * enforce_delivery_asset_status(): the one status each delivery type may be
+ * created in.
+ */
+function parseDeliveryStageRules(): Record<string, string> {
+  const migration = read('20260101000600_delivery_workflow.sql');
+  const fn = /create or replace function public\.enforce_delivery_asset_status[\s\S]*?\$\$;/.exec(
+    migration,
+  );
+  expect(fn, 'enforce_delivery_asset_status() not found in migration 000600').not.toBeNull();
+
+  const rules: Record<string, string> = {};
+  for (const row of fn![0]!.matchAll(
+    /new\.asset_type = '([A-Z_]+)'\s+and v_status <> '([A-Z_]+)'/g,
+  )) {
+    rules[row[1]!] = row[2]!;
+  }
+
+  expect(
+    Object.keys(rules).length,
+    'parsed no delivery stage rules — the guard shape must have changed',
+  ).toBe(2);
+
+  // A `<>` test permits exactly one status. An `IN (...)` list would permit
+  // more, and would not be matched above — so fail loudly rather than silently
+  // reading a loosened rule as a strict one.
+  expect(
+    fn![0]!,
+    'the guard no longer compares v_status with <>, so this parse cannot be trusted',
+  ).not.toMatch(/v_status not in/i);
+
+  return rules;
+}
+
 const sqlEnumValues = parseEnumValues();
 const sqlTransitions = parseSqlTransitions();
+const sqlDeliveryStages = parseDeliveryStageRules();
 
 describe('project_status: SQL and TypeScript agree', () => {
   it('has FINALISING, added by its own migration so it commits before use', () => {
@@ -149,5 +190,40 @@ describe('the workflow: SQL and TypeScript agree', () => {
     expect(ALLOWED_STATUS_TRANSITIONS.CANCELLED).toHaveLength(0);
     expect(sqlTransitions['COMPLETED']).toBeUndefined();
     expect(sqlTransitions['CANCELLED']).toBeUndefined();
+  });
+});
+
+describe('delivery stage: SQL is the authority, TypeScript is the mirror', () => {
+  /**
+   * enforce_delivery_asset_status() is what actually refuses a delivery created
+   * at the wrong moment; it holds for the server action, for a hand-made
+   * PostgREST request and for psql alike. DELIVERY_UPLOAD_STATUS exists only so
+   * the interface can offer the right control. A mirror that drifts is worse
+   * than no mirror, so it is compared against the migration itself.
+   */
+  it('permits each delivery type in exactly the status the migration does', () => {
+    expect(sqlDeliveryStages).toEqual({
+      PREVIEW_VIDEO: 'IN_PRODUCTION',
+      FINAL_VIDEO: 'FINALISING',
+    });
+    expect(DELIVERY_UPLOAD_STATUS).toEqual(sqlDeliveryStages);
+  });
+
+  it('never lets a preview be uploaded while the customer is deciding', () => {
+    // The whole point. PREVIEW_READY is when approve_preview() may be called, so
+    // a preview arriving in that status is what would make an approval stale.
+    expect(DELIVERY_UPLOAD_STATUS.PREVIEW_VIDEO).not.toBe('PREVIEW_READY');
+    expect(sqlTransitions['PREVIEW_READY']).not.toContain('IN_PRODUCTION');
+  });
+
+  it('offers an upload in exactly the statuses the database allows one in', () => {
+    for (const type of ['PREVIEW_VIDEO', 'FINAL_VIDEO'] as const) {
+      const offered = PROJECT_STATUS_ORDER.filter(
+        (status) => nextAdminAction(status)?.upload === type,
+      );
+      expect(offered, `the admin UI offers ${type} in the wrong statuses`).toEqual([
+        sqlDeliveryStages[type],
+      ]);
+    }
   });
 });

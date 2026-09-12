@@ -42,6 +42,71 @@ create index if not exists project_assets_delivery_idx
   on public.project_assets (project_id, asset_type, version desc)
   where asset_type in ('PREVIEW_VIDEO', 'FINAL_VIDEO');
 
+-- -----------------------------------------------------------------------------
+-- 1a. When a delivery may be created at all
+-- -----------------------------------------------------------------------------
+-- The workflow says a preview belongs to production and a final belongs to
+-- finalising. That is a rule about the data, so it is enforced on the data.
+-- The server action states the same rule, but it is a convenience, not the
+-- boundary: this trigger is what makes it true for every caller, including one
+-- writing straight to PostgREST with a valid administrator session.
+--
+-- It is also the concurrency interlock. `FOR UPDATE` takes the same exclusive
+-- row lock on public.projects that approve_preview() and
+-- request_project_revision() take, so a delivery insert and a customer decision
+-- on the same project can never interleave — one waits for the other to commit,
+-- and then re-reads. Because PREVIEW_VIDEO requires IN_PRODUCTION while both
+-- customer decisions require PREVIEW_READY, and PREVIEW_READY -> IN_PRODUCTION
+-- is not a legal transition at all, the dangerous overlap does not merely lose
+-- the race: it has no state in which it could be attempted.
+--
+-- There is deliberately NO break-glass for direct connections here. This is a
+-- statement about workflow correctness rather than about privilege, and an
+-- operator with a psql prompt can always move the project first.
+create or replace function public.enforce_delivery_asset_status()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_status public.project_status;
+begin
+  if new.asset_type not in ('PREVIEW_VIDEO', 'FINAL_VIDEO') then
+    return new;
+  end if;
+
+  -- SECURITY DEFINER so that the lock does not depend on the caller's ability
+  -- to see the project row: the invariant must hold for every caller, and a
+  -- caller RLS hides the project from must be refused, not waved through.
+  select p.status into v_status
+  from public.projects p
+  where p.id = new.project_id
+  for update;
+
+  if v_status is null then
+    raise exception 'Project not found' using errcode = '42501';
+  end if;
+
+  if new.asset_type = 'PREVIEW_VIDEO' and v_status <> 'IN_PRODUCTION' then
+    raise exception
+      'A preview can only be created while the project is IN_PRODUCTION (it is %)', v_status
+      using errcode = '42501';
+  end if;
+
+  if new.asset_type = 'FINAL_VIDEO' and v_status <> 'FINALISING' then
+    raise exception
+      'A final video can only be created while the project is FINALISING (it is %)', v_status
+      using errcode = '42501';
+  end if;
+
+  return new;
+end;
+$$;
+
+comment on function public.enforce_delivery_asset_status() is
+  'Delivery assets may only be created in the status their workflow stage allows. Locks the parent project row, which is also what serialises delivery inserts against the customer decision RPCs.';
+
 -- The version is assigned by the database, not by the caller. A client that
 -- supplies one cannot use it to overwrite an earlier delivery.
 create or replace function public.assign_delivery_asset_version()
@@ -63,8 +128,18 @@ begin
 end;
 $$;
 
+-- BEFORE ROW triggers fire in name order, hence the numeric prefixes: the guard
+-- must run first so that the project row is locked BEFORE the version is
+-- computed. Otherwise two concurrent previews could both read the same
+-- max(version) and one would die on the unique index instead of simply queuing.
 drop trigger if exists project_assets_assign_version on public.project_assets;
-create trigger project_assets_assign_version
+drop trigger if exists project_assets_01_delivery_status on public.project_assets;
+create trigger project_assets_01_delivery_status
+  before insert on public.project_assets
+  for each row execute function public.enforce_delivery_asset_status();
+
+drop trigger if exists project_assets_02_assign_version on public.project_assets;
+create trigger project_assets_02_assign_version
   before insert on public.project_assets
   for each row execute function public.assign_delivery_asset_version();
 
@@ -300,6 +375,119 @@ create trigger projects_resolve_revisions
 -- transaction: the insert and the status change either both land or neither
 -- does. There is no window in which a revision exists against a project that is
 -- not REVISION_REQUESTED.
+
+-- -----------------------------------------------------------------------------
+-- 7a. Recording a delivery, atomically
+-- -----------------------------------------------------------------------------
+-- Uploading a preview both creates an asset and announces it. Done as two
+-- requests those are two transactions, and a preview can exist for a moment
+-- against a project that has not been moved. Done here they are one: the
+-- project row is locked first, the status is checked against that locked row,
+-- the asset is inserted, and the project moves — or none of it happens.
+--
+-- SECURITY DEFINER, so it says who may call it: an administrator, and only for
+-- the two delivery types. It is not a general asset writer. The RLS policy
+-- "project_assets: admin can add delivery assets" still governs direct inserts,
+-- and the trigger above governs both paths, so this function is the convenient
+-- route rather than the trusted one.
+--
+-- It deliberately does NOT trust the caller for user_id, bucket or version:
+-- the owner is read from the project, the bucket is fixed, and the version is
+-- assigned by trigger.
+create or replace function public.record_delivery_asset(
+  p_project_id uuid,
+  p_asset_type public.asset_type,
+  p_storage_path text,
+  p_mime_type text,
+  p_original_filename text,
+  p_file_size bigint
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_owner    uuid;
+  v_status   public.project_status;
+  v_asset_id uuid;
+  v_version  integer;
+begin
+  if not public.is_admin() then
+    raise exception 'Project not found' using errcode = '42501';
+  end if;
+
+  if p_asset_type not in ('PREVIEW_VIDEO', 'FINAL_VIDEO') then
+    raise exception 'Only delivery assets are recorded through this function'
+      using errcode = '42501';
+  end if;
+
+  -- The lock, before anything is read that the decision depends on.
+  select p.user_id, p.status into v_owner, v_status
+  from public.projects p
+  where p.id = p_project_id
+  for update;
+
+  if v_owner is null then
+    raise exception 'Project not found' using errcode = '42501';
+  end if;
+
+  if p_asset_type = 'PREVIEW_VIDEO' and v_status <> 'IN_PRODUCTION' then
+    raise exception
+      'A preview can only be uploaded while the project is in production'
+      using errcode = '42501';
+  end if;
+
+  if p_asset_type = 'FINAL_VIDEO' and v_status <> 'FINALISING' then
+    raise exception
+      'A final video can only be uploaded once the customer has approved a preview'
+      using errcode = '42501';
+  end if;
+
+  -- The path is treated as untrusted even though this application generated it:
+  -- it must address the customer's own folder for this project, which is the
+  -- only place their storage read policy can reach.
+  if p_storage_path is null
+     or p_storage_path not like (v_owner::text || '/' || p_project_id::text || '/%') then
+    raise exception 'That upload does not belong to this project' using errcode = '42501';
+  end if;
+
+  if p_mime_type not in ('video/mp4', 'video/webm') then
+    raise exception 'Delivery videos must be MP4 or WebM' using errcode = '22023';
+  end if;
+
+  if p_file_size is null or p_file_size <= 0 then
+    raise exception 'That upload is empty' using errcode = '22023';
+  end if;
+
+  insert into public.project_assets
+    (project_id, user_id, asset_type, storage_bucket, storage_path,
+     mime_type, original_filename, file_size)
+  values
+    (p_project_id, v_owner, p_asset_type, 'project-deliveries', p_storage_path,
+     p_mime_type, nullif(btrim(coalesce(p_original_filename, '')), ''), p_file_size)
+  returning id, version into v_asset_id, v_version;
+
+  -- A preview nobody is told about is not a delivery, so the announcement is
+  -- part of the same transaction rather than a follow-up request that might not
+  -- happen. The final video does NOT auto-complete: an administrator confirms.
+  if p_asset_type = 'PREVIEW_VIDEO' then
+    update public.projects set status = 'PREVIEW_READY' where id = p_project_id;
+    v_status := 'PREVIEW_READY';
+  end if;
+
+  return jsonb_build_object(
+    'assetId', v_asset_id, 'version', v_version, 'status', v_status);
+end;
+$$;
+
+revoke execute on function
+  public.record_delivery_asset(uuid, public.asset_type, text, text, text, bigint) from public;
+grant execute on function
+  public.record_delivery_asset(uuid, public.asset_type, text, text, text, bigint) to authenticated;
+
+comment on function public.record_delivery_asset(uuid, public.asset_type, text, text, text, bigint) is
+  'Administrator delivery upload: locks the project, checks the status against that locked row, inserts the asset and (for a preview) moves the project to PREVIEW_READY — atomically.';
 
 -- The customer names the preview they are approving. Approving "whatever is
 -- latest" would be wrong: an administrator may upload a replacement while the
