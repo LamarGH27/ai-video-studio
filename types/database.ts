@@ -22,6 +22,20 @@ export type ProjectStatus =
 
 export type RevisionStatus = 'OPEN' | 'RESOLVED';
 
+export type NotificationStatus = 'PENDING' | 'PROCESSING' | 'SENT' | 'FAILED';
+
+export type NotificationRecipient = 'CUSTOMER' | 'ADMIN';
+
+export type NotificationEventType =
+  | 'PROJECT_SUBMITTED_CUSTOMER'
+  | 'PROJECT_SUBMITTED_ADMIN'
+  | 'PREVIEW_READY_CUSTOMER'
+  | 'PREVIEW_REVISED_CUSTOMER'
+  | 'REVISION_REQUESTED_ADMIN'
+  | 'PREVIEW_APPROVED_CUSTOMER'
+  | 'PREVIEW_APPROVED_ADMIN'
+  | 'FINAL_VIDEO_READY_CUSTOMER';
+
 export type ProjectOrientation = 'VERTICAL_9_16' | 'LANDSCAPE_16_9' | 'SQUARE_1_1';
 
 export type AssetType = 'REFERENCE_IMAGE' | 'PREVIEW_VIDEO' | 'FINAL_VIDEO';
@@ -103,6 +117,26 @@ export type ProjectRevisionRow = {
   status: RevisionStatus;
   requested_at: string;
   resolved_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type NotificationOutboxRow = {
+  id: string;
+  event_type: NotificationEventType;
+  recipient: NotificationRecipient;
+  recipient_user_id: string | null;
+  recipient_email: string | null;
+  project_id: string | null;
+  payload: Record<string, unknown>;
+  status: NotificationStatus;
+  attempt_count: number;
+  next_attempt_at: string | null;
+  claimed_at: string | null;
+  sent_at: string | null;
+  last_error: string | null;
+  provider_message_id: string | null;
+  dedupe_key: string;
   created_at: string;
   updated_at: string;
 };
@@ -273,6 +307,30 @@ export interface Database {
           },
         ];
       };
+      notification_outbox: {
+        Row: NotificationOutboxRow;
+        // No Insert or Update path exists through PostgREST: the table has no
+        // INSERT/UPDATE/DELETE policy for any role. Rows are created by
+        // workflow triggers and mutated only by SECURITY DEFINER functions.
+        Insert: never;
+        Update: never;
+        Relationships: [
+          {
+            foreignKeyName: 'notification_outbox_project_id_fkey';
+            columns: ['project_id'];
+            isOneToOne: false;
+            referencedRelation: 'projects';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'notification_outbox_recipient_user_id_fkey';
+            columns: ['recipient_user_id'];
+            isOneToOne: false;
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       project_revisions: {
         Row: ProjectRevisionRow;
         Insert: Insertable<ProjectRevisionRow, 'project_id' | 'user_id' | 'message'>;
@@ -356,6 +414,22 @@ export interface Database {
         };
         Returns: { assetId: string; version: number; status: ProjectStatus };
       };
+      // The notification worker's three operations. Granted to service_role
+      // only; unreachable from a customer or admin session.
+      claim_notifications: {
+        Args: { p_limit: number; p_lease_seconds: number };
+        Returns: NotificationOutboxRow[];
+      };
+      mark_notification_sent: {
+        Args: { p_id: string; p_provider_message_id: string | null };
+        Returns: undefined;
+      };
+      mark_notification_failed: {
+        Args: { p_id: string; p_error: string; p_permanent: boolean };
+        Returns: undefined;
+      };
+      // Operator retry, from the admin view. Preserves the outbox row.
+      retry_notification: { Args: { p_id: string }; Returns: boolean };
       approve_preview: {
         Args: { p_project_id: string; p_preview_asset_id: string };
         Returns: string;
@@ -373,6 +447,9 @@ export interface Database {
       consent_type: ConsentType;
       experience_category: ExperienceCategory;
       revision_status: RevisionStatus;
+      notification_status: NotificationStatus;
+      notification_recipient: NotificationRecipient;
+      notification_event_type: NotificationEventType;
     };
     CompositeTypes: { [_ in never]: never };
   };

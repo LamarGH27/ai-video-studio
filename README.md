@@ -88,18 +88,35 @@ real key in `.env.example`.**
 | `E2E_CUSTOMER_A_EMAIL` / `_PASSWORD`   | test only | no       | Enables the authenticated Playwright specs            |
 | `E2E_CUSTOMER_B_EMAIL` / `_PASSWORD`   | test only | no       | Enables the cross-customer isolation specs            |
 | `E2E_ADMIN_EMAIL` / `_PASSWORD`        | test only | no       | Enables the admin specs                               |
+| `RESEND_API_KEY`                       | server    | no\*     | Transactional email provider credential               |
+| `EMAIL_FROM`                           | server    | no\*     | Verified sender address                               |
+| `ADMIN_NOTIFICATION_EMAIL`             | server    | no\*     | Where operational notifications go                    |
+| `CRON_SECRET`                          | server    | no\*     | Protects the notification worker endpoint             |
+| `SUPABASE_SECRET_KEY`                  | server    | no\*     | The notification worker's database credential         |
 
-### There is no secret key
+\* Required for transactional email. Without them the application runs
+normally, notifications queue up, and the worker refuses to pretend it sent
+them. See [`docs/notifications.md`](docs/notifications.md).
 
-This application **never uses a Supabase secret key** (`sb_secret_...`, formerly
-the `service_role` key). Nothing in it needs to bypass Row Level Security:
-customer requests run as the customer and admin requests run as the admin, so
-RLS applies to every query the application makes. There is therefore no elevated
-credential to leak, misconfigure, or accidentally prefix with `NEXT_PUBLIC_`.
+### One secret key, for one job
 
-If a future milestone genuinely needs one — a scheduled job or a webhook with no
-user session — add it as a server-only variable read from a single `server-only`
-module. See `docs/architecture.md` §11.
+Every request this application serves runs as the person who made it: customer
+requests as the customer, admin requests as the admin. RLS applies to all of
+them, and none uses an elevated credential.
+
+The exception is the notification worker, added in Milestone 2B. It is woken by
+a scheduler rather than by a person, so there is no session to act as and the
+publishable key would see an empty queue under RLS. It therefore uses
+`SUPABASE_SECRET_KEY` — which is exactly the case this README previously
+anticipated, and it is contained the way it said it should be: one
+`server-only` module reads the variable, one client uses it, one module imports
+that client, and one route — gated on `CRON_SECRET` in constant time — reaches
+that module. `tests/notification-config.test.ts` fails if any of those grow.
+
+Nothing else in the application bypasses Row Level Security, and no variable
+carrying a secret may ever be prefixed `NEXT_PUBLIC_`; that is asserted, not
+assumed. See [`docs/notifications.md`](docs/notifications.md) §8.3 for the
+alternative that was considered and why it was rejected.
 
 ### A note on key naming
 
@@ -351,6 +368,13 @@ Setup, the eight required secrets, and how to read the results:
 script you can paste into the Supabase SQL Editor against a live project. See
 [`docs/database.md`](docs/database.md).
 
+### Transactional email
+
+Eight transactional messages, queued in the database by workflow triggers and
+sent by a scheduled worker, so that a provider outage can never fail a project
+state change. Architecture, setup, retry policy, privacy rules and
+troubleshooting: [`docs/notifications.md`](docs/notifications.md).
+
 ---
 
 ## Deployment
@@ -370,8 +394,13 @@ Notes:
 - Reference images are uploaded **directly from the browser to Supabase Storage**
   using a server-issued signed upload URL. They never pass through a Vercel
   function, so Vercel's 4.5 MB request-body limit does not apply.
-- There is no secret key to configure. Every variable this application reads is
-  a `NEXT_PUBLIC_` one, because nothing it does bypasses Row Level Security.
+- Transactional email needs five server-only variables and a cron job.
+  `vercel.json` already declares the schedule; set `CRON_SECRET` in the project
+  and Vercel sends it automatically. Setup, verification and troubleshooting:
+  [`docs/notifications.md`](docs/notifications.md).
+- Apart from the notification worker, which has no user session to act as, every
+  variable this application reads is a `NEXT_PUBLIC_` one, because nothing else
+  it does bypasses Row Level Security.
 
 ---
 

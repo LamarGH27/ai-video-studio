@@ -7,6 +7,11 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./', import.meta.url)),
+      // See tests/stubs/server-only.ts: the real package throws outside a React
+      // Server Component, which is its whole purpose and not something the test
+      // runner can satisfy. Next.js still resolves the genuine package at build
+      // time, and tests/notification-config.test.ts asserts the guards remain.
+      'server-only': fileURLToPath(new URL('./tests/stubs/server-only.ts', import.meta.url)),
     },
   },
   test: {

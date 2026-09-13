@@ -1,7 +1,8 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
-import { Inbox } from 'lucide-react';
+import { Bell, Inbox } from 'lucide-react';
 import { Container } from '@/components/site/container';
+import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { StatusBadge } from '@/features/dashboard/status-badge';
 import { listAllProjectsForAdmin } from '@/lib/data/projects';
@@ -31,6 +32,15 @@ export default async function AdminPage() {
         <p className="mt-4 max-w-lg leading-relaxed text-bone-400">
           Every submitted brief, newest first. Drafts are not shown — they are not finished.
         </p>
+
+        <div className="mt-6">
+          <Button asChild variant="outline" size="sm">
+            <Link href="/admin/notifications">
+              <Bell aria-hidden="true" />
+              Notification queue
+            </Link>
+          </Button>
+        </div>
       </header>
 
       {projects.length === 0 ? (

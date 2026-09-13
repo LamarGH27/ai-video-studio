@@ -6,19 +6,20 @@ document explains them.
 
 Apply in filename order:
 
-| Migration                                    | Contents                                           | Re-runnable |
-| -------------------------------------------- | -------------------------------------------------- | ----------- |
-| `20260101000000_initial_schema.sql`          | enums, tables, indexes, triggers, helper functions | no          |
-| `20260101000100_row_level_security.sql`      | RLS enabled plus explicit policies                 | no          |
-| `20260101000200_storage.sql`                 | private buckets and storage policies               | yes         |
-| `20260101000300_seed_reference_data.sql`     | experiences and placeholder portfolio              | yes         |
-| `20260101000400_status_transition_guard.sql` | workflow enforcement + audit trail ordering        | no          |
-| `20260101000500_add_finalising_status.sql`   | the `FINALISING` enum value, and nothing else      | yes         |
-| `20260101000600_delivery_workflow.sql`       | previews, revisions, approvals, delivery RLS       | yes         |
+| Migration                                    | Contents                                              | Re-runnable |
+| -------------------------------------------- | ----------------------------------------------------- | ----------- |
+| `20260101000000_initial_schema.sql`          | enums, tables, indexes, triggers, helper functions    | no          |
+| `20260101000100_row_level_security.sql`      | RLS enabled plus explicit policies                    | no          |
+| `20260101000200_storage.sql`                 | private buckets and storage policies                  | yes         |
+| `20260101000300_seed_reference_data.sql`     | experiences and placeholder portfolio                 | yes         |
+| `20260101000400_status_transition_guard.sql` | workflow enforcement + audit trail ordering           | no          |
+| `20260101000500_add_finalising_status.sql`   | the `FINALISING` enum value, and nothing else         | yes         |
+| `20260101000600_delivery_workflow.sql`       | previews, revisions, approvals, delivery RLS          | yes         |
+| `20260101000700_notification_outbox.sql`     | the transactional notification queue and its triggers | yes         |
 
-> **Migrations 000000–000400 are applied history and must never be edited.**
-> 000500 and 000600 are additive; `npx supabase db push` upgrades an existing
-> project without a reset.
+> **Migrations 000000–000600 are applied history and must never be edited.**
+> 000700 is additive; `npx supabase db push` upgrades an existing project
+> without a reset.
 >
 > **Why 000500 contains one statement.** PostgreSQL refuses to _use_ a new enum
 > value in the transaction that added it, and each migration file is applied in
@@ -61,15 +62,18 @@ profiles ──────1:N──────► projects ──────1
 
 ## Enums
 
-| Enum                  | Values                                                                                                                                |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `user_role`           | `customer`, `admin`                                                                                                                   |
-| `project_status`      | `DRAFT`, `SUBMITTED`, `ASSETS_REVIEW`, `IN_PRODUCTION`, `PREVIEW_READY`, `FINALISING`, `REVISION_REQUESTED`, `COMPLETED`, `CANCELLED` |
-| `revision_status`     | `OPEN`, `RESOLVED`                                                                                                                    |
-| `project_orientation` | `VERTICAL_9_16`, `LANDSCAPE_16_9`, `SQUARE_1_1`                                                                                       |
-| `asset_type`          | `REFERENCE_IMAGE`, `PREVIEW_VIDEO`, `FINAL_VIDEO`                                                                                     |
-| `consent_type`        | `HAS_LIKENESS_PERMISSION`, `AI_PROCESSING_CONSENT`, `PORTFOLIO_PERMISSION`                                                            |
-| `experience_category` | `LUXURY_LIFESTYLE`, `FASHION`, `CINEMATIC`, `SOCIAL_MEDIA`, `CELEBRATION`, `TRAVEL`, `EXECUTIVE`, `BESPOKE`                           |
+| Enum                      | Values                                                                                                                                |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `user_role`               | `customer`, `admin`                                                                                                                   |
+| `project_status`          | `DRAFT`, `SUBMITTED`, `ASSETS_REVIEW`, `IN_PRODUCTION`, `PREVIEW_READY`, `FINALISING`, `REVISION_REQUESTED`, `COMPLETED`, `CANCELLED` |
+| `revision_status`         | `OPEN`, `RESOLVED`                                                                                                                    |
+| `notification_status`     | `PENDING`, `PROCESSING`, `SENT`, `FAILED`                                                                                             |
+| `notification_recipient`  | `CUSTOMER`, `ADMIN`                                                                                                                   |
+| `notification_event_type` | the eight transactional events; see [`notifications.md`](notifications.md)                                                            |
+| `project_orientation`     | `VERTICAL_9_16`, `LANDSCAPE_16_9`, `SQUARE_1_1`                                                                                       |
+| `asset_type`              | `REFERENCE_IMAGE`, `PREVIEW_VIDEO`, `FINAL_VIDEO`                                                                                     |
+| `consent_type`            | `HAS_LIKENESS_PERMISSION`, `AI_PROCESSING_CONSENT`, `PORTFOLIO_PERMISSION`                                                            |
+| `experience_category`     | `LUXURY_LIFESTYLE`, `FASHION`, `CINEMATIC`, `SOCIAL_MEDIA`, `CELEBRATION`, `TRAVEL`, `EXECUTIVE`, `BESPOKE`                           |
 
 `PREVIEW_VIDEO` and `FINAL_VIDEO` are unused by the MVP. They exist now so
 delivery can be added without a destructive migration.
@@ -451,6 +455,46 @@ against a newer one the customer has not seen.
 
 ---
 
+### `notification_outbox`
+
+The durable queue of transactional emails. Full treatment in
+[`notifications.md`](notifications.md); the parts that belong here:
+
+| Column                                  | Type                      | Notes                                                 |
+| --------------------------------------- | ------------------------- | ----------------------------------------------------- |
+| `event_type`                            | `notification_event_type` | One of eight                                          |
+| `recipient`                             | `notification_recipient`  | `CUSTOMER` or `ADMIN` — a role, not an address        |
+| `recipient_user_id` / `recipient_email` | `uuid` / `text` null      | Customer rows only, read from `auth.users` at enqueue |
+| `project_id`                            | `uuid` null               | FK → `projects`, cascade                              |
+| `payload`                               | `jsonb`                   | Rendering data. A CHECK refuses anything URL-shaped   |
+| `status`                                | `notification_status`     | `PENDING` / `PROCESSING` / `SENT` / `FAILED`          |
+| `attempt_count`                         | `integer`                 | Incremented by the claim, not by the result           |
+| `next_attempt_at`                       | `timestamptz` null        | When next due. **NULL is terminal**                   |
+| `dedupe_key`                            | `text` **UNIQUE**         | Identity of the business event                        |
+
+Rows are written **inside the business transaction** by AFTER triggers on
+`projects`, `project_revisions` and `project_preview_approvals`, so email can
+never fail a project state change and no server action has to remember to
+enqueue anything.
+
+`ON CONFLICT (dedupe_key) DO NOTHING` makes idempotency a database property
+rather than a code convention: a replayed event is silently discarded.
+
+**RLS intent** — staff may read; **nobody may write**. There is no INSERT,
+UPDATE or DELETE policy for any role, and no customer policy of any kind, not
+even for their own rows. The only writer is `enqueue_notification()`, and the
+only mutators are four `SECURITY DEFINER` functions that each decide for
+themselves who may call them.
+
+> Supabase's project defaults grant `EXECUTE` on every new `public` function to
+> `anon` and `authenticated`, and `REVOKE … FROM PUBLIC` does not remove a grant
+> held by a named role. Migration 000700 revokes from those roles by name, and
+> `01_schema_assertions.sql` asserts it — without which any signed-in customer
+> could call `enqueue_notification()` and claim a dedupe key before the workflow
+> does, suppressing the real notification.
+
+---
+
 ### `portfolio_items`
 
 Public marketing showcase.
@@ -489,22 +533,29 @@ no customer or public write path.
 
 ## Helper functions
 
-| Function                                | Kind                      | Purpose                                                                               |
-| --------------------------------------- | ------------------------- | ------------------------------------------------------------------------------------- |
-| `set_updated_at()`                      | trigger                   | Maintains `updated_at`                                                                |
-| `request_jwt_role()`                    | stable                    | PostgREST role of the current request, or null for a direct connection                |
-| `is_admin()`                            | stable, SECURITY DEFINER  | Whether the caller is an admin; `EXECUTE` revoked from `PUBLIC`                       |
-| `current_profile_role()`                | stable, SECURITY DEFINER  | Caller's stored role, without recursing through RLS                                   |
-| `handle_new_user()`                     | trigger, SECURITY DEFINER | Creates a profile for each new `auth.users` row                                       |
-| `enforce_profile_role_immutable()`      | trigger, SECURITY DEFINER | Blocks role changes from non-service-role callers                                     |
-| `enforce_project_owner_immutable()`     | trigger                   | Blocks changes to `user_id` and `public_reference`                                    |
-| `enforce_child_owner_matches_project()` | trigger, SECURITY DEFINER | Keeps asset/consent `user_id` equal to the project owner                              |
-| `record_project_status_change()`        | trigger, SECURITY DEFINER | Writes `project_status_history`                                                       |
-| `generate_project_reference()`          | volatile                  | `AVS-` + 6-digit sequence value                                                       |
-| `enforce_delivery_asset_status()`       | trigger, SECURITY DEFINER | Locks the parent project and refuses a delivery created at the wrong stage            |
-| `record_delivery_asset()`               | SECURITY DEFINER          | Administrator delivery upload: lock, validate, insert and announce, atomically        |
-| `approve_preview()`                     | SECURITY DEFINER          | The customer's approval of a named preview; `EXECUTE` granted only to `authenticated` |
-| `request_project_revision()`            | SECURITY DEFINER          | The customer's revision request against a named preview; same grant                   |
+| Function                                 | Kind                      | Purpose                                                                               |
+| ---------------------------------------- | ------------------------- | ------------------------------------------------------------------------------------- |
+| `set_updated_at()`                       | trigger                   | Maintains `updated_at`                                                                |
+| `request_jwt_role()`                     | stable                    | PostgREST role of the current request, or null for a direct connection                |
+| `is_admin()`                             | stable, SECURITY DEFINER  | Whether the caller is an admin; `EXECUTE` revoked from `PUBLIC`                       |
+| `current_profile_role()`                 | stable, SECURITY DEFINER  | Caller's stored role, without recursing through RLS                                   |
+| `handle_new_user()`                      | trigger, SECURITY DEFINER | Creates a profile for each new `auth.users` row                                       |
+| `enforce_profile_role_immutable()`       | trigger, SECURITY DEFINER | Blocks role changes from non-service-role callers                                     |
+| `enforce_project_owner_immutable()`      | trigger                   | Blocks changes to `user_id` and `public_reference`                                    |
+| `enforce_child_owner_matches_project()`  | trigger, SECURITY DEFINER | Keeps asset/consent `user_id` equal to the project owner                              |
+| `record_project_status_change()`         | trigger, SECURITY DEFINER | Writes `project_status_history`                                                       |
+| `generate_project_reference()`           | volatile                  | `AVS-` + 6-digit sequence value                                                       |
+| `enforce_delivery_asset_status()`        | trigger, SECURITY DEFINER | Locks the parent project and refuses a delivery created at the wrong stage            |
+| `record_delivery_asset()`                | SECURITY DEFINER          | Administrator delivery upload: lock, validate, insert and announce, atomically        |
+| `enqueue_notification()`                 | SECURITY DEFINER          | The outbox's only writer; resolves the customer address from `auth.users`             |
+| `notify_on_project_status_change()`      | trigger, SECURITY DEFINER | Submission, preview ready, completion                                                 |
+| `notify_on_revision_requested()`         | trigger, SECURITY DEFINER | Revision requested                                                                    |
+| `notify_on_preview_approved()`           | trigger, SECURITY DEFINER | Approval, to both audiences                                                           |
+| `claim_notifications()`                  | SECURITY DEFINER          | Worker batch claim, `FOR UPDATE SKIP LOCKED`; `service_role` only                     |
+| `mark_notification_sent()` / `_failed()` | SECURITY DEFINER          | Worker completion and bounded backoff; `service_role` only                            |
+| `retry_notification()`                   | SECURITY DEFINER          | Operator requeue; reuses the row, keeping its dedupe key                              |
+| `approve_preview()`                      | SECURITY DEFINER          | The customer's approval of a named preview; `EXECUTE` granted only to `authenticated` |
+| `request_project_revision()`             | SECURITY DEFINER          | The customer's revision request against a named preview; same grant                   |
 
 **Every** function in `public` pins `search_path`, not only the `SECURITY
 DEFINER` ones, so none can be hijacked by a schema on the caller's path. This is

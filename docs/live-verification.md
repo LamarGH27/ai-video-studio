@@ -510,3 +510,27 @@ cannot push, comment, or alter the repository.
 **No migrations, no schema changes.** The workflow never writes to the database
 schema. If a migration has not been applied, the suites fail — which is the
 correct outcome, and far better than a test run silently mutating a project.
+
+---
+
+## Notifications
+
+`verify:live` checks notification **access** only: that a customer cannot read
+the outbox, enqueue a notification, drain the queue, mark one sent, or requeue
+one. Those probes need no email configuration and send nothing.
+
+**It deliberately sends no email.** Verification runs on every change and can run
+on a schedule; a security suite that mails real people each time it runs is a
+suite people turn off, and it would spend provider quota proving something that
+does not change between runs.
+
+Proving that Resend actually delivers is a separate, deliberate act: submit a
+project in a non-production environment and watch `/admin/notifications` — "Sent
+(24h)" climbing is the confirmation. If you want a repeatable integration check,
+keep it opt-in behind its own environment variable and its own command, so no
+ordinary CI run triggers it.
+
+The notification worker endpoint is not exercised here at all. It requires
+`CRON_SECRET` and the worker's database credential, neither of which belongs in
+a verification run whose whole purpose is to prove that ordinary sessions are
+constrained. See [`notifications.md`](notifications.md).

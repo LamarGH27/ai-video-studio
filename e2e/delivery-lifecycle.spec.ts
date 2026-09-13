@@ -216,6 +216,42 @@ test.describe('delivery lifecycle', () => {
       nextAction(page).getByText(/Delivered\. Nothing further is required\./),
     ).toBeVisible({ timeout: 30_000 });
 
+    // ------------------------------ admin: the notifications were enqueued
+    //
+    // Deliberately NOT an inbox check. Whether Resend delivered is Resend's
+    // concern and belongs in integration testing; what this suite can prove,
+    // and what actually matters to the workflow, is that every business event
+    // produced its durable notification and that the project state is right
+    // either way. An E2E that logged into a mailbox would be slow, flaky and
+    // would test somebody else's service.
+    await page.goto('/admin/notifications');
+    const queueRows = page.getByRole('row').filter({ hasText: reference });
+
+    // The full lifecycle: submitted (x2), preview ready, revision requested,
+    // revised preview, approved (x2), final ready.
+    await expect(queueRows).toHaveCount(8, { timeout: 20_000 });
+
+    const queue = page.getByRole('table');
+    for (const event of [
+      'Project submitted · customer',
+      'Project submitted · admin',
+      'Preview ready · customer',
+      'Revision requested · admin',
+      'Preview revised · customer',
+      'Preview approved · customer',
+      'Preview approved · admin',
+      'Final video ready · customer',
+    ]) {
+      await expect(queue.getByText(event), `${event} was not enqueued`).toHaveCount(1);
+    }
+
+    // The queue is operational data, not a copy of the customer's project: no
+    // signed URL, no storage path, and none of what they wrote to us.
+    const queueText = (await queue.textContent()) ?? '';
+    expect(queueText).not.toContain('/storage/v1/');
+    expect(queueText).not.toContain('token=');
+    expect(queueText).not.toContain(revisionMessage);
+
     // ------------------------------------------------- customer A: the film
     await pageA.goto(projectUrl);
     await expect(pageA.getByRole('heading', { name: /Your film is ready/ })).toBeVisible({

@@ -549,6 +549,17 @@ without a final), so a button that could only fail is never rendered.
 Roles are granted out-of-band, in the Supabase SQL Editor. There is no route,
 action or form anywhere in this application that writes `profiles.role`.
 
+### The notification worker is the one exception to "no elevated key"
+
+Every request above runs as the person who made it. The notification worker
+(Milestone 2B) is woken by a scheduler, so there is no person and no session; the
+publishable key would see an empty queue under RLS and report a healthy system
+while sending nothing. It uses `SUPABASE_SECRET_KEY`, confined to one
+`server-only` module, one client, one importer and one route gated on
+`CRON_SECRET` — each of which is asserted by `tests/notification-config.test.ts`
+rather than left to review. Rationale and the rejected alternative:
+[`notifications.md`](notifications.md) §8.3.
+
 ---
 
 ## 11. Future integrations, and where they plug in

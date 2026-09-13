@@ -626,6 +626,69 @@ async function main() {
     ),
   );
 
+  // ---------------------------------------------------------------------------
+  // Notifications (Milestone 2B)
+  // ---------------------------------------------------------------------------
+  // Access only. This deliberately sends NO email: verification runs on every
+  // change and on a schedule, and a security suite that mails real people each
+  // time it runs is a suite people turn off. Whether Resend delivers is proved
+  // once, on purpose — see docs/notifications.md.
+  await probe('Notifications', 'Customer reads the notification outbox', 'DENIED', async () =>
+    fromQuery(await a.from('notification_outbox').select('id, recipient_email, dedupe_key')),
+  );
+
+  await probe(
+    'Notifications',
+    'Customer reads notifications addressed to them',
+    'DENIED',
+    async () =>
+      fromQuery(await a.from('notification_outbox').select('id').eq('recipient_user_id', aUser.id)),
+  );
+
+  await probe('Notifications', 'B reads A\u2019s notifications', 'DENIED', async () =>
+    fromQuery(await b.from('notification_outbox').select('id').eq('recipient_user_id', aUser.id)),
+  );
+
+  await probe('Notifications', 'Anonymous reads the notification outbox', 'DENIED', async () =>
+    fromQuery(await anon.from('notification_outbox').select('id')),
+  );
+
+  // The quietest attack on a notification system: take the dedupe key before
+  // the workflow does, and the real notification is never created.
+  await probe('Notifications', 'Customer enqueues a notification', 'DENIED', async () => {
+    const result = await a.rpc('enqueue_notification', {
+      p_event_type: 'FINAL_VIDEO_READY_CUSTOMER',
+      p_recipient: 'CUSTOMER',
+      p_project_id: aDraft.id,
+      p_dedupe_key: `project:${aDraft.id}:completed:customer`,
+      p_payload: {},
+    } as never);
+    return result.error ? `DENIED (${result.error.code ?? 'error'})` : 'ALLOWED';
+  });
+
+  await probe('Notifications', 'Customer drains the notification queue', 'DENIED', async () => {
+    const result = await a.rpc('claim_notifications', { p_limit: 10, p_lease_seconds: 300 });
+    return result.error ? `DENIED (${result.error.code ?? 'error'})` : 'ALLOWED';
+  });
+
+  await probe(
+    'Notifications',
+    'Customer suppresses a notification by marking it sent',
+    'DENIED',
+    async () => {
+      const result = await a.rpc('mark_notification_sent', {
+        p_id: aDraft.id,
+        p_provider_message_id: null,
+      });
+      return result.error ? `DENIED (${result.error.code ?? 'error'})` : 'ALLOWED';
+    },
+  );
+
+  await probe('Notifications', 'Customer requeues a notification', 'DENIED', async () => {
+    const result = await a.rpc('retry_notification', { p_id: aDraft.id });
+    return result.error ? `DENIED (${result.error.code ?? 'error'})` : 'ALLOWED';
+  });
+
   await probe('Delivery RPC', 'Customer inserts a PREVIEW_VIDEO asset', 'DENIED', async () =>
     fromQuery(
       await a

@@ -19,21 +19,22 @@ $$;
 -- -----------------------------------------------------------------------------
 -- Tables
 -- -----------------------------------------------------------------------------
-select avs_test.expect('Schema', 'All 9 public tables exist', '9',
+select avs_test.expect('Schema', 'All 10 public tables exist', '10',
   (select count(*)::text from pg_class
    where relnamespace = 'public'::regnamespace and relkind = 'r'
      and relname in ('profiles','video_experiences','projects','project_assets',
                      'project_consents','project_status_history','portfolio_items',
-                     'project_revisions','project_preview_approvals')));
+                     'project_revisions','project_preview_approvals','notification_outbox')));
 
 -- -----------------------------------------------------------------------------
 -- Enums
 -- -----------------------------------------------------------------------------
-select avs_test.expect('Schema', 'All 7 enums exist', '7',
+select avs_test.expect('Schema', 'All 10 enums exist', '10',
   (select count(*)::text from pg_type
    where typnamespace = 'public'::regnamespace and typtype = 'e'
      and typname in ('user_role','project_status','project_orientation',
-                     'asset_type','consent_type','experience_category','revision_status')));
+                     'asset_type','consent_type','experience_category','revision_status',
+                     'notification_status','notification_recipient','notification_event_type')));
 
 select avs_test.expect('Schema', 'project_status has all 9 values', '9',
   (select count(*)::text from pg_enum e join pg_type t on t.oid = e.enumtypid
@@ -78,7 +79,7 @@ select avs_test.expect('RLS', 'project_assets rows are immutable (no UPDATE poli
 -- -----------------------------------------------------------------------------
 -- Functions and triggers
 -- -----------------------------------------------------------------------------
-select avs_test.expect('Functions', 'All expected functions exist', '17',
+select avs_test.expect('Functions', 'All expected functions exist', '25',
   (select count(*)::text from pg_proc
    where pronamespace = 'public'::regnamespace
      and proname in ('set_updated_at','request_jwt_role','is_admin','current_profile_role',
@@ -88,7 +89,11 @@ select avs_test.expect('Functions', 'All expected functions exist', '17',
                      'allowed_status_transitions','enforce_project_status_transition',
                      'assign_delivery_asset_version','enforce_delivery_asset_status',
                      'record_delivery_asset','approve_preview',
-                     'request_project_revision')));
+                     'request_project_revision',
+                     'enqueue_notification','notify_on_project_status_change',
+                     'notify_on_revision_requested','notify_on_preview_approved',
+                     'claim_notifications','mark_notification_sent',
+                     'mark_notification_failed','retry_notification')));
 
 -- A SECURITY DEFINER function without a pinned search_path can be hijacked by a
 -- schema on the caller's path. This is the Supabase linter's
@@ -108,7 +113,7 @@ select avs_test.expect('Functions', 'Every public function pins search_path', '0
 select avs_test.expect('Functions', 'is_admin() is not executable by PUBLIC', 'false',
   (select has_function_privilege('public', 'public.is_admin()', 'EXECUTE')::text));
 
-select avs_test.expect('Triggers', 'All expected triggers exist', '17',
+select avs_test.expect('Triggers', 'All expected triggers exist', '21',
   (select count(*)::text from pg_trigger t
    join pg_class c on c.oid = t.tgrelid
    where not t.tgisinternal
@@ -122,7 +127,10 @@ select avs_test.expect('Triggers', 'All expected triggers exist', '17',
                       'project_assets_01_delivery_status','project_assets_02_assign_version',
                       'projects_resolve_revisions',
                       'project_revisions_set_updated_at','project_revisions_enforce_owner',
-                      'project_preview_approvals_enforce_owner')));
+                      'project_preview_approvals_enforce_owner',
+                      'projects_notify_status_change','project_revisions_notify',
+                      'project_preview_approvals_notify',
+                      'notification_outbox_set_updated_at')));
 
 -- The guard takes the lock, so it has to fire before the version is computed.
 -- BEFORE ROW triggers fire in name order, so this asserts the name order rather
@@ -133,6 +141,47 @@ select avs_test.expect('Triggers', 'The delivery status guard fires before the v
    from pg_trigger t
    where t.tgrelid = 'public.project_assets'::regclass
      and not t.tgisinternal));
+
+-- -----------------------------------------------------------------------------
+-- Notification internals are not reachable from a session
+-- -----------------------------------------------------------------------------
+-- Supabase's project defaults grant EXECUTE on every new function in `public`
+-- to anon and authenticated, and REVOKE ... FROM PUBLIC does not remove a grant
+-- held by a named role. So "I revoked it" is not evidence, and this asks the
+-- database instead. enqueue_notification() is the one that matters: a caller
+-- who can reach it can take a dedupe key before the workflow does, and the
+-- notification that event should have produced is then never created.
+select avs_test.expect('Notifications',
+  'The notification internals are executable by neither anon nor authenticated', '0',
+  (select count(*)::text
+   from (values
+     ('public.enqueue_notification(public.notification_event_type, public.notification_recipient, uuid, text, jsonb)'),
+     ('public.claim_notifications(integer, integer)'),
+     ('public.mark_notification_sent(uuid, text)'),
+     ('public.mark_notification_failed(uuid, text, boolean)')
+   ) as f(signature)
+   cross join (values ('anon'), ('authenticated')) as r(role_name)
+   where has_function_privilege(r.role_name, f.signature, 'EXECUTE')));
+
+-- The worker's three, on the other hand, must be reachable by service_role —
+-- otherwise nothing would ever be sent and the queue would silently fill up.
+select avs_test.expect('Notifications', 'The worker operations are executable by service_role', '3',
+  (select count(*)::text
+   from (values
+     ('public.claim_notifications(integer, integer)'),
+     ('public.mark_notification_sent(uuid, text)'),
+     ('public.mark_notification_failed(uuid, text, boolean)')
+   ) as f(signature)
+   where has_function_privilege('service_role', f.signature, 'EXECUTE')));
+
+select avs_test.expect('Notifications', 'notification_outbox has no write policy at all', '0',
+  (select count(*)::text from pg_policies
+   where schemaname = 'public' and tablename = 'notification_outbox' and cmd <> 'SELECT'));
+
+select avs_test.expect('Notifications', 'dedupe_key is unique', 'true',
+  (select exists (select 1 from pg_indexes
+    where schemaname = 'public' and tablename = 'notification_outbox'
+      and indexdef ilike '%unique%' and indexdef ilike '%dedupe_key%')::text));
 
 -- -----------------------------------------------------------------------------
 -- Constraints that carry security or integrity weight
