@@ -20,7 +20,8 @@ export default async function SignupPage({
   return (
     <AuthFormShell
       title="Create your account"
-      description="You need an account to upload reference images and track your project."
+      description="Your account is where your brief, your photographs and your finished film live."
+      reassurance="Your reference images are private from the moment you upload them, and nothing you commission is ever shown publicly without your separate consent."
       footer={
         <p className="text-bone-400">
           Already have an account?{' '}

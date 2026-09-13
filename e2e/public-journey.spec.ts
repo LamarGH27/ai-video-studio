@@ -35,8 +35,13 @@ test('a visitor can reach Create My Video from the homepage', async ({ page }) =
 test('the portfolio lists work and filters by category', async ({ page }) => {
   await page.goto('/portfolio');
 
-  await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('Imagine your version');
   await expect(page.getByRole('link', { name: /Create Your Version/ }).first()).toBeVisible();
+
+  // Credibility: nothing here has been delivered to a customer, so every piece
+  // is marked, and the page says so once in plain words.
+  await expect(page.getByText(/concept we created to show a direction/)).toBeVisible();
+  expect(await page.getByText('Concept', { exact: true }).count()).toBeGreaterThan(0);
 
   await page.getByRole('link', { name: 'Fashion', exact: true }).click();
   await expect(page).toHaveURL(/category=FASHION/);
@@ -60,8 +65,12 @@ test('how it works and pricing are reachable, and pricing is marked provisional'
   page,
 }) => {
   await page.goto('/how-it-works');
-  await expect(page.getByRole('heading', { name: 'Choose your experience' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Choose your idea' })).toBeVisible();
 
+  // The workflow shipped in Milestone 2A; nothing here may still say otherwise.
+  await expect(page.getByText('Coming soon')).toHaveCount(0);
+
+  // Pricing is still reachable directly — it is only out of public discovery.
   await page.goto('/pricing');
   await expect(page.getByRole('heading', { name: 'Starter' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Cinematic' })).toBeVisible();
@@ -96,3 +105,30 @@ for (const [name, path] of [
     await expectNoHorizontalScroll(page);
   });
 }
+
+/**
+ * Credibility rules that are easy to undo by accident with one word of copy.
+ */
+test('the public site never claims a customer history it does not have', async ({ page }) => {
+  for (const path of ['/', '/portfolio', '/how-it-works'] as const) {
+    await page.goto(path);
+    const body = (await page.locator('body').textContent()) ?? '';
+
+    for (const claim of [
+      'Films we have made',
+      'producer assigned to your project',
+      'Only you can open your project',
+      'none can be created',
+    ]) {
+      expect(body, `${path} still says "${claim}"`).not.toContain(claim);
+    }
+  }
+});
+
+test('pricing is not promoted in public navigation or the footer', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByRole('navigation', { name: 'Main' }).getByText('Pricing')).toHaveCount(0);
+  await expect(page.getByRole('navigation', { name: 'Explore' }).getByText('Pricing')).toHaveCount(
+    0,
+  );
+});

@@ -9,7 +9,10 @@ import { cn } from '@/lib/utils';
 
 export const metadata: Metadata = {
   title: 'Pricing',
-  description: 'Provisional package structure for AI Video Studio commissions.',
+  description: 'Provisional package structure. Not a commercial offer.',
+  // Out of public discovery until the commercial milestone sets real figures.
+  // The page still renders for anyone with the link, and for our own review.
+  robots: { index: false, follow: false },
 };
 
 export default function PricingPage() {

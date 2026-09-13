@@ -17,6 +17,7 @@ import { PreviewDecision } from '@/features/delivery/preview-decision';
 import { RevisionHistory } from '@/features/delivery/revision-history';
 import { Download } from 'lucide-react';
 import { consentLabel } from '@/lib/consent/definitions';
+import { experienceDisplayName } from '@/lib/catalog/presentation';
 import { customerHeadline, orientationLabel, statusDescription } from '@/lib/projects/status';
 import { formatDate, formatDateTime } from '@/lib/utils';
 
@@ -58,7 +59,9 @@ export default async function ProjectDetailPage({
   const previousPreviews = deliveries.filter(
     (asset) => asset.assetType === 'PREVIEW_VIDEO' && asset.id !== latestPreview?.id,
   );
-  const experienceName = project.video_experiences?.name ?? 'Custom concept';
+  const experienceName = project.video_experiences
+    ? experienceDisplayName(project.video_experiences.slug, project.video_experiences.name)
+    : 'Custom concept';
 
   const facts: { label: string; value: string }[] = [
     { label: 'Experience', value: experienceName },

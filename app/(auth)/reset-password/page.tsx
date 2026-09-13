@@ -14,7 +14,11 @@ export const metadata: Metadata = {
  */
 export default function ResetPasswordPage() {
   return (
-    <AuthFormShell title="Set a new password" description="Choose a new password for your account.">
+    <AuthFormShell
+      title="Set a new password"
+      description="Choose a new password for your account."
+      reassurance="Once this is set you will be signed in, and any other sessions will need the new password."
+    >
       <ResetPasswordForm />
     </AuthFormShell>
   );

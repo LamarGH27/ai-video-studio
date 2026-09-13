@@ -12,6 +12,18 @@ export const EXPERIENCE_CATEGORIES: readonly ExperienceCategory[] = [
   'BESPOKE',
 ] as const;
 
+/**
+ * What each category is CALLED, as distinct from what it is stored as.
+ *
+ * The enum values are database identifiers and are immutable — they are written
+ * into applied migrations and into every row. This map is the only place a
+ * human-facing name is decided, so renaming one is a presentation change with
+ * no data migration behind it.
+ *
+ * `EXECUTIVE` is stored as `EXECUTIVE` and shown as "Executive Presence":
+ * "Boss" was doing the opposite of the job, reading as a stock-photo category
+ * rather than as something a founder would commission.
+ */
 const CATEGORY_LABELS: Record<ExperienceCategory, string> = {
   LUXURY_LIFESTYLE: 'Luxury Lifestyle',
   FASHION: 'Fashion',
@@ -19,7 +31,7 @@ const CATEGORY_LABELS: Record<ExperienceCategory, string> = {
   SOCIAL_MEDIA: 'Social Media',
   CELEBRATION: 'Celebration',
   TRAVEL: 'Travel',
-  EXECUTIVE: 'Executive / Boss',
+  EXECUTIVE: 'Executive Presence',
   BESPOKE: 'Bespoke',
 };
 

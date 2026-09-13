@@ -5,58 +5,74 @@ import { Button } from '@/components/ui/button';
 import { SectionHeading } from '@/components/ui/section-heading';
 import { PortfolioFrame } from '@/features/portfolio/frame';
 import { TransformationStrip } from '@/features/marketing/transformation-strip';
+import { Transformation } from '@/features/marketing/transformation';
 import { listPortfolioEntries } from '@/lib/data/portfolio';
 import { listActiveExperiences } from '@/lib/data/experiences';
 import { categoryLabel } from '@/lib/catalog/categories';
+import { portfolioProvenance, provenanceLabel } from '@/lib/catalog/presentation';
 import { brand } from '@/lib/brand';
+import { JOURNEY_BRIEF_STEPS, JOURNEY_PRODUCTION_STAGES } from '@/lib/journey';
+import { experienceDisplayDescription, experienceDisplayName } from '@/lib/catalog/presentation';
 
 // Marketing content changes rarely and must not require a live session to render.
 export const revalidate = 300;
 
-const PROCESS = [
-  {
-    step: '01',
-    title: 'Upload your photos',
-    copy: 'Choose clear reference images that show you at your best — a few good ones beat a whole camera roll.',
-  },
-  {
-    step: '02',
-    title: 'Describe your vision',
-    copy: 'Tell us where you want to be, what you want to wear, and the moment you want to experience.',
-  },
-  {
-    step: '03',
-    title: 'We create your film',
-    copy: 'We transform your idea into a personalised cinematic video and send you a private preview.',
-  },
-  {
-    step: '04',
-    title: 'Approve or refine',
-    copy: 'Request changes or approve the film before receiving your final version.',
-  },
-] as const;
+/**
+ * The canonical journey, in the order the create wizard actually runs.
+ *
+ * It was previously told three different ways on three pages, with photos
+ * before the brief here and after it in the wizard. The order is now one order:
+ * what YOU build, then what WE do. lib/journey.ts holds it so the homepage,
+ * How It Works and the create flow cannot drift apart again.
+ */
+const BRIEF_STEPS = JOURNEY_BRIEF_STEPS;
+const PRODUCTION_STAGES = JOURNEY_PRODUCTION_STAGES;
 
+/**
+ * Privacy claims, written to match what the system actually enforces.
+ *
+ * Two earlier lines overstated it. "Only you can open your project" was false —
+ * authorised production staff can, and must, or nobody could make the film. And
+ * "no public link and none can be created" was false in the other direction —
+ * the product creates short-lived signed URLs by design, which is the mechanism
+ * rather than a hole in it. A privacy promise that is not exactly true is worse
+ * than a weaker one that is.
+ */
 const TRUST = [
   {
     icon: Lock,
     title: 'Your photos stay private',
-    copy: 'Reference images go into private storage the moment you upload them. They are never public, never indexed, and never shown to another customer.',
+    copy: 'Reference images go into private storage the moment you upload them. They are not held in public buckets or exposed through permanent public URLs — access is authorised and time-limited.',
   },
   {
     icon: KeyRound,
-    title: 'Only you can open your project',
-    copy: 'Everything about your film — the brief, the previews, the final cut — sits behind your account. Links alone open nothing.',
+    title: 'Your project stays private',
+    copy: 'Your brief, reference images, previews and final film are available only through authenticated access, to you and to authorised production staff. They are never exposed as public project pages.',
   },
   {
     icon: Eye,
     title: 'Previews are for your eyes',
-    copy: 'Each preview plays through a short-lived private link created for your session. Nothing is shareable by accident.',
+    copy: 'Each preview plays through a short-lived link created for your session and re-authorised every time it is used. Nothing becomes shareable by accident.',
   },
   {
     icon: ShieldCheck,
     title: 'Nothing is shown publicly without you',
-    copy: 'Your film is never added to our portfolio unless you explicitly say yes. Saying no changes nothing about the work we do for you.',
+    copy: 'Your film is never added to our gallery unless you separately say yes. Saying no changes nothing about the work we do for you.',
   },
+] as const;
+
+/**
+ * The three reassurances that sit next to the button.
+ *
+ * Every one of them is something the system does, stated without security
+ * vocabulary: no certification badges we do not hold, no padlock iconography,
+ * no "bank-grade" anything. Someone hesitating before uploading photographs of
+ * themselves wants to know what happens to them, not what standard we claim.
+ */
+const CONVERSION_ASSURANCES = [
+  'Private reference uploads',
+  'A private preview before anything is final',
+  'Nothing public without your separate consent',
 ] as const;
 
 export default async function HomePage() {
@@ -109,6 +125,15 @@ export default async function HomePage() {
                 <Link href="/portfolio">See What&rsquo;s Possible</Link>
               </Button>
             </div>
+
+            <ul className="mt-9 flex animate-rise flex-wrap gap-x-6 gap-y-2.5 text-sm text-bone-500 [animation-delay:320ms]">
+              {CONVERSION_ASSURANCES.map((item) => (
+                <li key={item} className="flex items-center gap-2">
+                  <span aria-hidden="true" className="size-1 rounded-full bg-brass-400/70" />
+                  {item}
+                </li>
+              ))}
+            </ul>
           </div>
 
           {/* The claim, shown rather than stated: a photograph becoming a scene. */}
@@ -176,9 +201,11 @@ export default async function HomePage() {
                       <p className="text-[0.65rem] tracking-[0.22em] text-brass-300/80 uppercase">
                         {categoryLabel(experience.category)}
                       </p>
-                      <h3 className="mt-2.5 display-heading text-2xl">{experience.name}</h3>
+                      <h3 className="mt-2.5 display-heading text-2xl">
+                        {experienceDisplayName(experience.slug, experience.name)}
+                      </h3>
                       <p className="mt-2.5 max-w-sm text-sm leading-relaxed text-bone-400">
-                        {experience.description}
+                        {experienceDisplayDescription(experience.slug, experience.description)}
                       </p>
                       <span className="mt-5 inline-flex items-center gap-2 text-sm text-bone-50 opacity-0 transition-opacity duration-500 group-hover:opacity-100 motion-reduce:opacity-100">
                         Start with this
@@ -199,12 +226,12 @@ export default async function HomePage() {
           <SectionHeading
             id="process-heading"
             eyebrow="How It Works"
-            title="Four steps. Most of them are ours."
-            lede="You choose, you describe, you approve. Everything in between is production work you never have to think about."
+            title="You build the brief. We make the film."
+            lede="Four short steps from you, then the work is ours. You see it before anything is finished."
           />
 
           <ol className="mt-16 grid gap-x-12 gap-y-14 sm:grid-cols-2 lg:grid-cols-4">
-            {PROCESS.map((item) => (
+            {BRIEF_STEPS.map((item) => (
               <li key={item.step} className="reveal pt-7 rule-top">
                 <p className="figure-mark">{item.step}</p>
                 <h3 className="mt-5 display-heading text-xl">{item.title}</h3>
@@ -212,6 +239,20 @@ export default async function HomePage() {
               </li>
             ))}
           </ol>
+
+          {/* Unnumbered on purpose: these are ours, not four more things the
+              customer has to complete. */}
+          <div className="mt-20 pt-10 rule-top">
+            <p className="eyebrow">Then we take over</p>
+            <ul className="mt-8 grid gap-x-12 gap-y-8 sm:grid-cols-3">
+              {PRODUCTION_STAGES.map((stage) => (
+                <li key={stage.title} className="reveal">
+                  <h3 className="display-heading text-xl">{stage.title}</h3>
+                  <p className="mt-2.5 leading-relaxed text-bone-400">{stage.copy}</p>
+                </li>
+              ))}
+            </ul>
+          </div>
 
           <div className="mt-14">
             <Button asChild variant="link">
@@ -241,62 +282,34 @@ export default async function HomePage() {
             }
           />
 
-          <ol className="mt-20 grid gap-10 lg:grid-cols-3 lg:gap-6">
-            {[
+          <Transformation
+            className="mt-20"
+            // Everything here is ours. The label under the sequence says so,
+            // and nothing in the copy suggests a customer sent us these.
+            attribution="DEMONSTRATION"
+            panels={[
               {
                 mark: 'Your photo',
-                copy: 'A clear picture of you. The one where you actually like how you look.',
+                caption: 'A clear picture of you. The one where you actually like how you look.',
                 seed: 'stage-photo',
-                category: 'BESPOKE' as const,
-                ratio: 'aspect-square',
+                category: 'BESPOKE',
+                asSnapshot: true,
               },
               {
                 mark: 'Your idea',
-                copy: '“Walking a Monaco quayside at first light, linen suit, nobody else around.”',
+                caption:
+                  '“Walking a Monaco quayside at first light, linen suit, nobody else around.”',
                 seed: 'stage-idea',
-                category: 'LUXURY_LIFESTYLE' as const,
-                ratio: 'aspect-square',
+                category: 'LUXURY_LIFESTYLE',
               },
               {
                 mark: 'Your cinematic world',
-                copy: 'A film of that moment, graded and cut, with you at the centre of it.',
+                caption: 'A film of that moment, graded and cut, with you at the centre of it.',
                 seed: 'stage-world',
-                category: 'CINEMATIC' as const,
-                ratio: 'aspect-square',
+                category: 'CINEMATIC',
               },
-            ].map((stage, index) => (
-              <li key={stage.mark} className="relative reveal">
-                {/* The connector, drawn only where there is a next panel. */}
-                {index < 2 ? (
-                  <span
-                    aria-hidden="true"
-                    className="absolute top-1/2 -right-3 hidden h-px w-6 bg-gradient-to-r from-brass-400/60 to-transparent lg:block"
-                  />
-                ) : null}
-
-                <div className={`media-frame ${stage.ratio}`}>
-                  <PortfolioFrame
-                    seed={stage.seed}
-                    title={stage.mark}
-                    category={stage.category}
-                    showLabel={false}
-                    className={index === 2 ? 'motion-safe:animate-drift' : undefined}
-                  />
-                  {index === 0 ? (
-                    // The first panel is a photograph, so it gets a photograph's
-                    // furniture: a white border and a slight tilt.
-                    <div
-                      aria-hidden="true"
-                      className="absolute inset-6 rotate-[-2.5deg] border-6 border-bone-50/85 shadow-2xl sm:inset-10"
-                    />
-                  ) : null}
-                </div>
-
-                <p className="mt-7 eyebrow">{stage.mark}</p>
-                <p className="mt-3 leading-relaxed text-bone-400">{stage.copy}</p>
-              </li>
-            ))}
-          </ol>
+            ]}
+          />
         </Container>
       </section>
 
@@ -305,12 +318,13 @@ export default async function HomePage() {
         <Container>
           <SectionHeading
             id="work-heading"
-            eyebrow="Selected Work"
-            title="Films we have made."
+            eyebrow="Explore the possibilities"
+            title="See where a single photograph could take you."
+            lede="Concepts we created to show what is possible. Yours will be built around you."
             action={
               <Button asChild variant="link">
                 <Link href="/portfolio">
-                  View the full portfolio
+                  Browse the concept gallery
                   <ArrowRight aria-hidden="true" />
                 </Link>
               </Button>
@@ -332,6 +346,11 @@ export default async function HomePage() {
                       showLabel={false}
                       className="transition-transform duration-[1.4s] ease-cinema group-hover:scale-[1.06]"
                     />
+                    {provenanceLabel(portfolioProvenance(entry)) ? (
+                      <p className="absolute top-3.5 left-3.5 rounded-full border border-bone-50/20 bg-ink-990/55 px-2.5 py-0.5 text-[0.55rem] tracking-[0.2em] text-bone-200 uppercase backdrop-blur-sm">
+                        {provenanceLabel(portfolioProvenance(entry))}
+                      </p>
+                    ) : null}
                   </div>
                   <p className="mt-5 text-[0.65rem] tracking-[0.22em] text-brass-300/75 uppercase">
                     {categoryLabel(entry.category)}
@@ -397,6 +416,15 @@ export default async function HomePage() {
               <ArrowRight aria-hidden="true" />
             </Link>
           </Button>
+
+          <ul className="mt-9 flex flex-wrap justify-center gap-x-6 gap-y-2.5 text-sm text-bone-500">
+            {CONVERSION_ASSURANCES.map((item) => (
+              <li key={item} className="flex items-center gap-2">
+                <span aria-hidden="true" className="size-1 rounded-full bg-brass-400/70" />
+                {item}
+              </li>
+            ))}
+          </ul>
         </Container>
       </section>
     </>

@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { ArrowUpRight, Clapperboard, Film } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
 import { PortfolioFrame } from '@/features/portfolio/frame';
+import { experienceDisplayName } from '@/lib/catalog/presentation';
 import {
   customerHeadline,
   customerNextAction,
@@ -26,7 +27,9 @@ import type { ExperienceCategory } from '@/types/database';
  * gets the accent.
  */
 export function ProjectCard({ project }: { project: ProjectWithExperience }) {
-  const experienceName = project.video_experiences?.name ?? 'Custom concept';
+  const experienceName = project.video_experiences
+    ? experienceDisplayName(project.video_experiences.slug, project.video_experiences.name)
+    : 'Custom concept';
   const category = (project.video_experiences?.category ?? 'BESPOKE') as ExperienceCategory;
   const headline = customerHeadline(project.status);
   const nextAction = customerNextAction(project.status);

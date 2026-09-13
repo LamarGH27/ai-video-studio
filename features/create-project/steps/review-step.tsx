@@ -8,6 +8,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { CONSENT_DEFINITIONS } from '@/lib/consent/definitions';
 import { orientationLabel } from '@/lib/projects/status';
 import { categoryLabel } from '@/lib/catalog/categories';
+import { experienceDisplayName } from '@/lib/catalog/presentation';
 import type { ExperienceOption } from '@/lib/catalog/experiences';
 import type { DraftValues, UploadedAsset } from '../types';
 
@@ -55,7 +56,9 @@ export function ReviewStep({
   const summary: { label: string; value: string }[] = [
     {
       label: 'Experience',
-      value: experience ? `${experience.name} · ${categoryLabel(experience.category)}` : '—',
+      value: experience
+        ? `${experienceDisplayName(experience.slug, experience.name)} · ${categoryLabel(experience.category)}`
+        : '—',
     },
     { label: 'Mood', value: values.mood || '—' },
     { label: 'Location', value: values.environment || '—' },

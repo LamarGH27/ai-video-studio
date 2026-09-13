@@ -26,7 +26,7 @@ export default async function LoginPage({
   return (
     <AuthFormShell
       title="Sign in"
-      description="Pick up a brief, or check on a project already in production."
+      description="Pick up a brief, or see where a film already in production has got to."
       footer={
         <div className="flex flex-col gap-2 text-bone-400">
           <p>

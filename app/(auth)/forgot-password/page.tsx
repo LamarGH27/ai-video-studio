@@ -13,6 +13,7 @@ export default function ForgotPasswordPage() {
     <AuthFormShell
       title="Reset your password"
       description="Enter the address you signed up with and we will email you a reset link."
+      reassurance="For your security we send the same reply whether or not an account exists at that address."
       footer={
         <p className="text-bone-400">
           <Link href="/login" className="text-brass-300 underline-offset-4 hover:underline">

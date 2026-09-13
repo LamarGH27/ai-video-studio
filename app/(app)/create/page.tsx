@@ -28,6 +28,17 @@ export const dynamic = 'force-dynamic';
  * private images have to be stored against an owner. Everything that writes is a
  * server action that re-derives identity from the session.
  */
+/**
+ * The same three facts that sit beside the homepage button, repeated at the
+ * point where someone is about to upload photographs of themselves — which is
+ * the moment the reassurance actually matters.
+ */
+const CREATE_ASSURANCES = [
+  'Private reference uploads',
+  'A private preview before anything is final',
+  'Nothing public without your separate consent',
+] as const;
+
 export default async function CreatePage({
   searchParams,
 }: {
@@ -94,10 +105,20 @@ export default async function CreatePage({
               Let&rsquo;s build your film.
             </h1>
           </div>
-          <p className="leading-relaxed text-bone-400 lg:col-span-4 lg:col-start-9">
-            Four short steps. Nothing is sent until you review it, and you can leave and come back —
-            your brief is kept.
-          </p>
+          <div className="lg:col-span-4 lg:col-start-9">
+            <p className="leading-relaxed text-bone-400">
+              Your idea, your vision, your photos, then a review. Nothing is sent to production
+              until you submit — and you can leave and come back without losing it.
+            </p>
+            <ul className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-sm text-bone-500">
+              {CREATE_ASSURANCES.map((item) => (
+                <li key={item} className="flex items-center gap-2">
+                  <span aria-hidden="true" className="size-1 rounded-full bg-brass-400/70" />
+                  {item}
+                </li>
+              ))}
+            </ul>
+          </div>
         </Container>
       </section>
 

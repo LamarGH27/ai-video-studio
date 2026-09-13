@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 import { categoryLabel } from '@/lib/catalog/categories';
 import { Button } from '@/components/ui/button';
 import { PortfolioFrame } from '@/features/portfolio/frame';
+import { experienceDisplayDescription, experienceDisplayName } from '@/lib/catalog/presentation';
 import type { ExperienceOption } from '@/lib/catalog/experiences';
 
 /**
@@ -36,6 +37,11 @@ export function ExperienceStep({
         <p className="lede">
           Pick the world you want to step into. It is a starting point, not a preset — you will make
           it yours in the next step.
+        </p>
+        {/* The people who need Bespoke most are the ones least sure they are
+            allowed to use it, so the page says so before they start scrolling. */}
+        <p className="text-sm text-bone-500">
+          Not sure which direction fits? Start with Bespoke and describe what you have in mind.
         </p>
       </header>
 
@@ -83,9 +89,11 @@ export function ExperienceStep({
                     <span className="block text-[0.62rem] tracking-[0.2em] text-brass-300/80 uppercase">
                       {categoryLabel(experience.category)}
                     </span>
-                    <span className="mt-2 block display-heading text-xl">{experience.name}</span>
+                    <span className="mt-2 block display-heading text-xl">
+                      {experienceDisplayName(experience.slug, experience.name)}
+                    </span>
                     <span className="mt-2 block text-sm leading-relaxed text-bone-400">
-                      {experience.description}
+                      {experienceDisplayDescription(experience.slug, experience.description)}
                     </span>
                   </span>
 

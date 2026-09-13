@@ -11,13 +11,19 @@ import {
   categoryLabel,
   isExperienceCategory,
 } from '@/lib/catalog/categories';
+import {
+  isConceptOnlyGallery,
+  portfolioProvenance,
+  provenanceLabel,
+} from '@/lib/catalog/presentation';
 import { cn } from '@/lib/utils';
 
 export const revalidate = 300;
 
 export const metadata: Metadata = {
-  title: 'Portfolio',
-  description: 'Selected cinematic work. Every piece began as photographs and a written brief.',
+  title: 'Concept Gallery',
+  description:
+    'Concept films showing the kinds of cinematic worlds we can create from your photographs.',
 };
 
 /**
@@ -37,20 +43,25 @@ export default async function PortfolioPage({
     ? entries.filter((entry) => entry.category === activeCategory)
     : entries;
 
+  // Everything here is work we made to show a direction, not a delivered
+  // commission. Saying so is not a disclaimer — it is the difference between a
+  // gallery a visitor can trust and one they eventually find out about.
+  const conceptOnly = isConceptOnlyGallery(entries);
+
   return (
     <>
       <section className="grain relative overflow-hidden surface-glow">
         <div className="grain-layer" aria-hidden="true" />
         <Container className="relative grid gap-8 py-20 sm:py-28 lg:grid-cols-12 lg:items-end">
           <div className="lg:col-span-8">
-            <p className="eyebrow">Portfolio</p>
+            <p className="eyebrow">{conceptOnly ? 'Concept Gallery' : 'Gallery'}</p>
             <h1 className="mt-6 display-heading text-display-lg text-balance">
-              Work made for people who were never on set.
+              Imagine your version.
             </h1>
           </div>
           <p className="leading-relaxed text-bone-400 lg:col-span-4 lg:col-start-9">
-            Every piece below started as a set of photographs and a written brief. Pick one you like
-            and we will build your version of it.
+            These concepts show the kinds of cinematic worlds we can create. Choose a direction you
+            love, or bring us something completely different.
           </p>
         </Container>
       </section>
@@ -92,6 +103,13 @@ export default async function PortfolioPage({
             </ul>
           </nav>
 
+          {conceptOnly ? (
+            <p className="mt-8 max-w-2xl text-sm leading-relaxed text-bone-500">
+              Every piece in this gallery is a concept we created to show a direction. We do not
+              publish a customer&rsquo;s film unless they have separately asked us to.
+            </p>
+          ) : null}
+
           {visible.length === 0 ? (
             <EmptyState
               className="mt-14"
@@ -125,6 +143,12 @@ export default async function PortfolioPage({
                       scrim={false}
                       className="transition-transform duration-[1.4s] ease-cinema group-hover:scale-[1.06]"
                     />
+
+                    {provenanceLabel(portfolioProvenance(entry)) ? (
+                      <p className="absolute top-4 left-4 rounded-full border border-bone-50/20 bg-ink-990/55 px-3 py-1 text-[0.6rem] tracking-[0.2em] text-bone-200 uppercase backdrop-blur-sm">
+                        {provenanceLabel(portfolioProvenance(entry))}
+                      </p>
+                    ) : null}
 
                     {/* Revealed on hover and on keyboard focus within the card,
                         so it is not a pointer-only affordance. */}

@@ -5,9 +5,8 @@ import { Container } from './container';
 
 const EXPLORE: readonly { href: Route; label: string }[] = [
   { href: '/#experiences' as Route, label: 'Experiences' },
-  { href: '/portfolio' as Route, label: 'Portfolio' },
+  { href: '/portfolio' as Route, label: 'Concept Gallery' },
   { href: '/how-it-works' as Route, label: 'How It Works' },
-  { href: '/pricing' as Route, label: 'Pricing' },
 ];
 
 const ACCOUNT: readonly { href: Route; label: string }[] = [

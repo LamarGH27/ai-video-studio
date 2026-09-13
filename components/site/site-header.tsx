@@ -8,17 +8,20 @@ import { Wordmark } from './wordmark';
 import { MobileNav, type NavLink } from './mobile-nav';
 
 /**
- * Four links and one action.
+ * Three links and one action.
  *
- * Pricing moved to the footer: it is provisional, and putting a provisional
- * number in front of someone before they have seen the work is asking them to
- * price something they do not yet want. The order here is the order of the
- * page — inspiration, then process, then proof.
+ * Pricing appears in neither the navigation nor the footer. /pricing still
+ * exists and still renders — it is reachable directly and the code is kept for
+ * the commercial milestone — but the figures on it are provisional, and a page
+ * that shows a premium brand's price and then says the price will change does
+ * more harm than showing no price at all.
+ *
+ * The order is the order of the page: inspiration, then process, then proof.
  */
 const NAV_LINKS: readonly NavLink[] = [
   { href: '/#experiences' as Route, label: 'Experiences' },
   { href: '/how-it-works' as Route, label: 'How It Works' },
-  { href: '/portfolio' as Route, label: 'Portfolio' },
+  { href: '/portfolio' as Route, label: 'Concept Gallery' },
 ] as const;
 
 export async function SiteHeader() {
