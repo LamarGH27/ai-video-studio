@@ -1,0 +1,131 @@
+name: Notification worker
+
+# =============================================================================
+# Runs the transactional email queue on a schedule.
+#
+# The worker itself is /api/internal/notifications/process in the application —
+# see docs/notifications.md. Nothing about the notification architecture depends
+# on what calls it: the endpoint is the same protected worker whether Vercel
+# Cron, this workflow, or an operator with curl invokes it.
+#
+# WHY THIS EXISTS. Vercel Cron on the Hobby plan cannot run more often than once
+# a day, and a queue drained daily is not a notification system. GitHub Actions
+# will schedule at a five-minute cadence, so it stands in until the project
+# moves to Vercel Pro.
+#
+# IT IS AN MVP ARRANGEMENT, NOT A PRODUCTION ONE. GitHub's scheduler is
+# explicitly best-effort: runs are queued on shared infrastructure, are
+# frequently late by five to fifteen minutes, are dropped entirely under load,
+# and are disabled automatically on a repository with no activity for 60 days.
+# None of that loses a notification — the outbox is durable and rows stay due
+# until something claims them — but it does mean "within five minutes" is a hope
+# rather than a guarantee.
+#
+# MIGRATING TO PRODUCTION: docs/notifications.md section 8.4. In short — upgrade
+# to Vercel Pro, restore vercel.json with the cron entry, confirm it is firing,
+# and only THEN delete this file. Running both at once is not harmful (the
+# worker claims with FOR UPDATE SKIP LOCKED and rows carry a lease) but it
+# doubles the invocations for no benefit.
+# =============================================================================
+
+on:
+  schedule:
+    # Five minutes is GitHub's finest granularity. Treat it as "about every five
+    # minutes, sometimes much less often".
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Why this run (appears in the job summary)'
+        required: false
+        default: 'Manual queue drain'
+
+# This workflow talks to the deployed application and to nothing on GitHub.
+permissions: {}
+
+# One drain at a time. Overlapping runs are safe — the worker claims rows with
+# FOR UPDATE SKIP LOCKED and each claim takes a lease — but a scheduler that is
+# running late should not pile up a backlog of invocations that all find an
+# empty queue.
+concurrency:
+  group: notification-worker
+  cancel-in-progress: false
+
+jobs:
+  drain:
+    name: Drain the notification queue
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check the required secrets are set
+        env:
+          WORKER_URL: ${{ secrets.NOTIFICATIONS_WORKER_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          missing=""
+          [ -n "${WORKER_URL}" ] || missing="${missing} NOTIFICATIONS_WORKER_URL"
+          [ -n "${CRON_SECRET}" ] || missing="${missing} CRON_SECRET"
+
+          if [ -n "${missing}" ]; then
+            # Names only. Never a value, and never a length or a prefix.
+            echo "::error::Missing repository secret(s):${missing}"
+            echo "See docs/notifications.md section 8.4." >&2
+            exit 1
+          fi
+
+      - name: Invoke the worker
+        env:
+          WORKER_URL: ${{ secrets.NOTIFICATIONS_WORKER_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          # No `set -x` anywhere in this file, deliberately: tracing would echo
+          # the command line, and GitHub's log masking is a safety net rather
+          # than a reason to hand it the secret.
+
+          work="$(mktemp -d)"
+          trap 'rm -rf "${work}"' EXIT
+
+          # The bearer token goes in a curl config file rather than an argument,
+          # so it never appears in this process's argv. printf, not echo, so a
+          # value that happens to start with "-" is not read as a flag.
+          umask 077
+          printf 'header = "Authorization: Bearer %s"\n' "${CRON_SECRET}" > "${work}/curl.conf"
+
+          status="$(
+            curl --silent --show-error \
+                 --request POST \
+                 --config "${work}/curl.conf" \
+                 --connect-timeout 10 \
+                 --max-time 90 \
+                 --output "${work}/body.json" \
+                 --write-out '%{http_code}' \
+                 "${WORKER_URL}"
+          )"
+
+          # No --retry: a 5xx from the worker is something to see, not something
+          # to paper over, and the next scheduled run is the retry. The queue
+          # itself loses nothing in the meantime.
+          if [ "${status}" -lt 200 ] || [ "${status}" -ge 300 ]; then
+            echo "::error::The notification worker responded ${status}."
+            # The body is the worker's own error message. It names configuration
+            # variables, never their values — see the route handler.
+            head -c 2000 "${work}/body.json" || true
+            echo
+            exit 1
+          fi
+
+          result="$(head -c 2000 "${work}/body.json")"
+          echo "Worker responded ${status}: ${result}"
+
+          {
+            echo "### Notification queue drained"
+            echo
+            echo "HTTP ${status}"
+            echo
+            echo '```json'
+            echo "${result}"
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"

@@ -329,35 +329,93 @@ Containment instead:
 - The worker only ever calls three functions, each granted to `service_role`
   alone.
 
-### 8.4 Vercel Cron
+### 8.4 Scheduling the worker
 
-`vercel.json` already contains:
+The worker endpoint does not care what calls it. It is the same protected route
+whether that is Vercel Cron, a GitHub Actions schedule, or an operator with
+curl: `CRON_SECRET`, compared in constant time, is the only thing it checks.
+Changing the scheduler therefore changes nothing about the notification
+architecture.
 
-```json
-{ "crons": [{ "path": "/api/internal/notifications/process", "schedule": "*/5 * * * *" }] }
-```
+**Today, on Vercel Hobby: GitHub Actions.**
 
-Every five minutes. Not more: the queue is small, the messages are not
-time-critical to the second, and a tighter schedule spends function invocations
-and provider goodwill to save a customer four minutes.
+Vercel Cron on Hobby cannot run more often than **once a day**, and a queue
+drained daily is not a notification system. So `.github/workflows/
+notification-worker.yml` calls the endpoint on a five-minute schedule instead.
+`vercel.json` has been removed; there is no Vercel cron entry to conflict with.
 
-**How the authentication works.** Vercel Cron sends
-`Authorization: Bearer $CRON_SECRET` automatically, using the `CRON_SECRET`
-environment variable on the project. Set it in Vercel and it is sent; there is
-nothing to configure in `vercel.json`. The route compares it with
-`timingSafeEqual`, and a missing secret means **closed**, not open — a
-deployment that forgot it does not expose a public queue runner.
+Two repository secrets, under **Settings → Secrets and variables → Actions**:
 
-**Confirming it is running.** Vercel dashboard → the project → Settings → Cron
-Jobs lists the schedule and the last run with its status code. The invocation
-also appears in the project's function logs. In the application,
-`/admin/notifications` shows "Sent (24h)" climbing and "Queued" staying near
-zero.
+| Secret                     | Value                                                          |
+| -------------------------- | -------------------------------------------------------------- |
+| `NOTIFICATIONS_WORKER_URL` | `https://<your-deployment>/api/internal/notifications/process` |
+| `CRON_SECRET`              | The same value as `CRON_SECRET` in Vercel                      |
 
-Cron requires a Hobby plan or higher; on Hobby, daily is the finest granularity,
-so on that plan either change the schedule to `0 * * * *` or better and accept
-the latency, or call the endpoint from an external scheduler with the same
-header.
+Neither the URL nor the secret appears anywhere in the repository. The workflow
+fails fast, naming the missing secret and nothing about its value, if either is
+unset.
+
+The token is written to a `curl` config file rather than passed as an argument,
+so it never reaches the process's argv, and the workflow uses no `set -x`
+anywhere — GitHub's log masking is a safety net, not a reason to hand it the
+secret. A non-2xx response fails the run, with the worker's own message (which
+names configuration variables, never their values). There is no `--retry`: a
+5xx is something to see rather than paper over, and the next scheduled run is
+the retry.
+
+`workflow_dispatch` runs it on demand, from the Actions tab.
+
+> **This is an MVP arrangement.** GitHub's scheduler is explicitly best-effort.
+> Runs are queued on shared infrastructure, are frequently five to fifteen
+> minutes late, are dropped entirely under load, and are **disabled
+> automatically on a repository with no activity for 60 days**. Nothing is lost
+> when a run is skipped — the outbox is durable and a due row stays due until
+> something claims it — but "within five minutes" is a hope, not a guarantee. A
+> customer may occasionally wait twenty minutes for a preview-ready email.
+
+**Confirming it is running.** Actions tab → _Notification worker_ → the latest
+run's job summary shows the HTTP status and the worker's JSON result. In the
+application, `/admin/notifications` shows "Sent (24h)" climbing and "Queued"
+staying near zero.
+
+#### Moving to production: back to Vercel Cron
+
+Do it in this order. The overlap is safe — the worker claims with
+`FOR UPDATE SKIP LOCKED` and every claim takes a lease, so two schedulers cannot
+process the same row — but running both wastes invocations on an empty queue.
+
+1. Upgrade the Vercel project to **Pro**.
+2. Recreate `vercel.json` at the repository root:
+
+   ```json
+   {
+     "$schema": "https://openapi.vercel.sh/vercel.json",
+     "crons": [
+       {
+         "path": "/api/internal/notifications/process",
+         "schedule": "*/5 * * * *"
+       }
+     ]
+   }
+   ```
+
+3. Deploy, and confirm the schedule in the Vercel dashboard → the project →
+   Settings → Cron Jobs. It lists the last run and its status code; the
+   invocation also appears in the project's function logs.
+4. **Only then** delete `.github/workflows/notification-worker.yml`, and remove
+   the `NOTIFICATIONS_WORKER_URL` repository secret. Leave `CRON_SECRET` in
+   Vercel — that is what the endpoint checks, and Vercel Cron sends it as
+   `Authorization: Bearer $CRON_SECRET` automatically once the variable is set
+   on the project. There is nothing to configure in `vercel.json` for it.
+
+Deleting the workflow first, before the Vercel schedule is confirmed working,
+leaves the queue with no scheduler at all — which is silent, because a queue
+that nobody drains looks exactly like a queue with nothing in it until a
+customer asks why they were never emailed.
+
+Five minutes either way, not tighter: the queue is small, the messages are not
+time-critical to the second, and a tighter schedule spends invocations and
+provider goodwill to save a customer four minutes.
 
 ### 8.5 Running it by hand
 

@@ -153,6 +153,83 @@ describe('the RLS-bypassing client is contained', () => {
   });
 });
 
+describe('the scheduled worker invocation', () => {
+  const WORKFLOW = '.github/workflows/notification-worker.yml';
+  const workflow = readFileSync(join(ROOT, WORKFLOW), 'utf8');
+
+  // "This file must not do X" is a claim about what runs, not about the prose
+  // explaining why it does not — a comment saying "no --retry here, and why"
+  // should not fail an assertion that there is no --retry.
+  const executable = workflow
+    .split('\n')
+    .filter((line) => !/^\s*#/.test(line))
+    .join('\n');
+
+  it('is scheduled and can also be run by hand', () => {
+    expect(workflow).toMatch(/cron: '\*\/5 \* \* \* \*'/);
+    expect(workflow).toContain('workflow_dispatch:');
+  });
+
+  it('takes the worker URL and the secret from repository secrets only', () => {
+    expect(workflow).toContain('${{ secrets.NOTIFICATIONS_WORKER_URL }}');
+    expect(workflow).toContain('${{ secrets.CRON_SECRET }}');
+
+    // No deployment URL in the repository. A hard-coded host is how a staging
+    // scheduler ends up draining production's queue after a copy-paste.
+    const urls = [...executable.matchAll(/https?:\/\/[^\s"'`]+/g)].map((match) => match[0]);
+    expect(urls.filter((url) => url.includes('/api/'))).toEqual([]);
+    expect(executable).not.toMatch(/\.vercel\.app/);
+  });
+
+  it('never puts the bearer token where it can be logged', () => {
+    // `set -x` would echo the command line, and the config-file indirection
+    // below exists so the token is not in argv either.
+    expect(executable).not.toMatch(/set -x/);
+    expect(executable).not.toMatch(/echo .*CRON_SECRET/);
+    expect(executable).not.toMatch(/Bearer \$\{?CRON_SECRET/);
+    expect(workflow).toContain('--config');
+  });
+
+  it('bounds the request and fails the run on a non-2xx response', () => {
+    expect(workflow).toContain('--connect-timeout');
+    expect(workflow).toContain('--max-time');
+    expect(workflow).toMatch(/status.*-lt 200.*\|\|.*-ge 300/s);
+    expect(workflow).toContain('exit 1');
+    // A 5xx should be visible, not retried away inside one run.
+    expect(executable).not.toMatch(/--retry\b/);
+  });
+
+  it('asks GitHub for no permissions it does not need', () => {
+    expect(workflow).toMatch(/^permissions: \{\}$/m);
+  });
+
+  it('does not let a late scheduler pile up invocations', () => {
+    expect(workflow).toContain('concurrency:');
+    expect(workflow).toMatch(/group: notification-worker/);
+  });
+
+  /**
+   * Two schedulers on one queue is not harmful — claims are leased and use
+   * FOR UPDATE SKIP LOCKED — but it doubles invocations for nothing. While the
+   * GitHub schedule exists, there must be no Vercel cron entry.
+   */
+  it('is the only scheduler: no Vercel cron entry exists alongside it', () => {
+    let vercelConfig: string | null = null;
+    try {
+      vercelConfig = readFileSync(join(ROOT, 'vercel.json'), 'utf8');
+    } catch {
+      vercelConfig = null;
+    }
+
+    if (vercelConfig !== null) {
+      expect(
+        JSON.parse(vercelConfig).crons ?? [],
+        'vercel.json registers a cron while the GitHub scheduler is still active',
+      ).toEqual([]);
+    }
+  });
+});
+
 describe('the outbox schema keeps secrets and media out', () => {
   const migration = readFileSync(
     join(ROOT, 'supabase/migrations/20260101000700_notification_outbox.sql'),

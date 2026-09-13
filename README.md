@@ -394,10 +394,14 @@ Notes:
 - Reference images are uploaded **directly from the browser to Supabase Storage**
   using a server-issued signed upload URL. They never pass through a Vercel
   function, so Vercel's 4.5 MB request-body limit does not apply.
-- Transactional email needs five server-only variables and a cron job.
-  `vercel.json` already declares the schedule; set `CRON_SECRET` in the project
-  and Vercel sends it automatically. Setup, verification and troubleshooting:
-  [`docs/notifications.md`](docs/notifications.md).
+- Transactional email needs five server-only variables and something to run the
+  queue on a schedule. Vercel Cron on the **Hobby** plan cannot run more often
+  than daily, so a GitHub Actions workflow
+  (`.github/workflows/notification-worker.yml`) calls the worker every five
+  minutes instead, using two repository secrets. It is an MVP arrangement —
+  GitHub's scheduler is best-effort — and
+  [`docs/notifications.md`](docs/notifications.md) §8.4 documents the move back
+  to Vercel Cron on Pro, in the order that avoids leaving the queue unattended.
 - Apart from the notification worker, which has no user session to act as, every
   variable this application reads is a `NEXT_PUBLIC_` one, because nothing else
   it does bypasses Row Level Security.
