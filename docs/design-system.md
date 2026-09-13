@@ -109,13 +109,45 @@ produced four warm-amber tiles out of eight, because random is not the same as
 varied. Colour now carries meaning: travel is daylight, celebration is
 candlelight, executive is cold and architectural.
 
-It is built to be deleted: when `portfolio_items.media_url` is populated, swap
-the inner layers for a `<video poster>` or `next/image` at the same aspect ratio
-and nothing around it changes.
+It is built to be deleted, piece by piece: anything in `SHOWCASE_FILMS` renders
+real media at the same aspect ratio and nothing around it changes.
 
 `scrim` exists because the bottom fall-off is for text sitting _on_ media. Where
 the caption is below the frame, the scrim only crushes the lower half of a tall
 poster to flat black.
+
+### Real films
+
+`lib/catalog/showcase.ts` declares the films we can actually show. They are code,
+not rows: migrations 000000-000700 are deployed and immutable, and a film is not
+a schema change. Adding one is media in `public/showcase` plus an entry — nothing
+to migrate, nothing that can drift from the files on disk.
+
+Files live under `/public` and are served as static assets. Two ten-second films
+at about 2 MB each is the right size for that: no signed URLs to expire, no
+bucket to configure, and no request to Supabase from a statically rendered
+marketing page. Past roughly a dozen films — or 50 MB — this moves to object
+storage behind a CDN, and only `videoUrl`/`posterUrl` change.
+
+**Provenance is stated, never inferred.** It used to be derived from whether a
+piece had media, which held right up until we had real concept films: both of
+ours have genuine media and neither was commissioned, so that rule would have
+quietly promoted them. `portfolioProvenance` now returns `COMMISSION` only where
+something says so explicitly; everything else, including every `portfolio_items`
+row, is a concept. Understating our own work is survivable. Inventing a client
+history is not.
+
+`CinematicVideo` is the one player. Nothing downloads on page load — every
+instance is `preload="none"` with no `autoPlay` attribute, so a page of films
+costs one poster each. Autoplay is a request rather than a decision: it is
+withdrawn for `prefers-reduced-motion` (re-checked live), for Save-Data and
+2g/slow-2g connections, and whenever the browser refuses `play()`. Each of those
+degrades to the on-demand player, poster and all — never to a blank frame.
+Controls are replaced rather than removed: while autoplaying, pause and sound are
+real buttons in the tab order.
+
+Exactly one instance on the site passes `mode="autoplay"`, and a test fails if a
+second appears.
 
 ---
 
@@ -187,13 +219,14 @@ its clean result was believed.
 The design is complete; the **content** is not. What would raise it most, in
 order:
 
-1. **Real film stills or short loops** for `portfolio_items.media_url` —
-   `PortfolioFrame` is a placeholder and everything else is built around it.
-2. **A hero loop** (muted, poster image, mobile fallback) for the transformation
-   strip.
-3. **A real before/after pair** — one photograph and one frame from the film
-   made out of it. That single asset would do more than any copy on the page.
-4. **A logo mark**, if the wordmark is ever not enough.
-5. **An OG/social image** — the product will mostly be met through a shared link.
-6. **Genuine testimonials.** None are invented here and none should be; the trust
+1. **More films.** Two exist (Midnight Yacht, Garden Wedding); six gallery pieces
+   are still `PortfolioFrame` placeholders. Each one added is one fewer.
+2. **A reference photograph** for the transformation sequence — a real picture
+   somebody is happy to publish, to sit where the "Your photo" placeholder is.
+   It is the only half of that before/after still missing, and it would do more
+   than any copy on the page. A stock face there would fake the exact thing the
+   section demonstrates, so it stays a placeholder until a real one exists.
+3. **A logo mark**, if the wordmark is ever not enough.
+4. **An OG/social image** — the product will mostly be met through a shared link.
+5. **Genuine testimonials.** None are invented here and none should be; the trust
    section is structured so real ones drop in beside it when they exist.

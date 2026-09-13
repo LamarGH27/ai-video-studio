@@ -132,3 +132,91 @@ test('pricing is not promoted in public navigation or the footer', async ({ page
     0,
   );
 });
+
+/**
+ * Real media.
+ *
+ * One caveat worth stating plainly: the Chromium that Playwright ships has no
+ * H.264 decoder, so `play()` always rejects here and no assertion below can
+ * prove that the flagship film visibly plays in a real browser. What they do
+ * prove is everything around it — that nothing is fetched on load, that the
+ * gallery starts no playback at all, that the flagship is muted before any
+ * attempt is made, and that asking for reduced motion stops the attempt from
+ * happening. Those are the properties that break silently; playback itself
+ * fails loudly.
+ */
+test('no film is downloaded, and none plays, until somebody asks', async ({ page }) => {
+  await page.goto('/portfolio');
+
+  const videos = page.locator('video');
+  const count = await videos.count();
+  expect(count).toBeGreaterThan(0);
+
+  for (let index = 0; index < count; index += 1) {
+    const video = videos.nth(index);
+    const state = await video.evaluate((element: HTMLVideoElement) => ({
+      paused: element.paused,
+      preload: element.preload,
+      poster: element.poster,
+      controls: element.controls,
+      label: element.getAttribute('aria-label'),
+    }));
+
+    expect(state.paused, `gallery video ${index} autoplayed`).toBe(true);
+    expect(state.preload, `gallery video ${index} preloads`).toBe('none');
+    expect(state.poster, `gallery video ${index} has no poster`).toMatch(/\.(webp|jpg|png)$/);
+    expect(state.controls, `gallery video ${index} hides its controls`).toBe(true);
+    expect(state.label, `gallery video ${index} has no accessible name`).toBeTruthy();
+  }
+});
+
+test('the gallery leads with the two films, both marked as concepts', async ({ page }) => {
+  await page.goto('/portfolio');
+
+  const headings = await page.locator('h2').allTextContents();
+  expect(headings.slice(0, 2)).toEqual(['Midnight Yacht', 'Garden Wedding']);
+
+  // Every piece on the page carries the mark; none is presented as a commission.
+  const marks = await page.getByText('Concept', { exact: true }).count();
+  expect(marks).toBeGreaterThanOrEqual(2);
+});
+
+test('the flagship film is muted before it is ever asked to play', async ({ page }) => {
+  await page.goto('/');
+
+  const flagship = page.locator('video').first();
+  await expect(flagship).toHaveAttribute('poster', /midnight-yacht-poster\.webp$/);
+  // Set by the autoplay path before play() is called, so it holds whether or
+  // not this browser can decode the file.
+  await expect
+    .poll(() => flagship.evaluate((element: HTMLVideoElement) => element.muted))
+    .toBe(true);
+
+  await expect(page.getByText('Demonstration concept — not a customer project.')).toBeVisible();
+});
+
+test.describe('reduced motion', () => {
+  test.use({ reducedMotion: 'reduce' });
+
+  test('the flagship never attempts to play, and keeps its poster and controls', async ({
+    page,
+  }) => {
+    await page.goto('/');
+
+    const flagship = page.locator('video').first();
+    const state = await flagship.evaluate((element: HTMLVideoElement) => ({
+      paused: element.paused,
+      // Untouched: the autoplay path returns before it would mute anything.
+      muted: element.muted,
+      loop: element.loop,
+      controls: element.controls,
+      poster: element.poster,
+    }));
+
+    expect(state.paused).toBe(true);
+    expect(state.muted).toBe(false);
+    expect(state.loop).toBe(false);
+    expect(state.controls, 'reduced motion must leave a usable player').toBe(true);
+    expect(state.poster, 'a still, never a blank frame').toMatch(/midnight-yacht-poster\.webp$/);
+  });
+});

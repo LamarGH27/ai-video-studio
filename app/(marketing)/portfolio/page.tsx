@@ -5,7 +5,9 @@ import { Container } from '@/components/site/container';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { PortfolioFrame } from '@/features/portfolio/frame';
+import { CinematicVideo } from '@/features/media/cinematic-video';
 import { listPortfolioEntries } from '@/lib/data/portfolio';
+import { galleryItems } from '@/lib/catalog/showcase';
 import {
   EXPERIENCE_CATEGORIES,
   categoryLabel,
@@ -38,7 +40,9 @@ export default async function PortfolioPage({
   const { category } = await searchParams;
   const activeCategory = category && isExperienceCategory(category) ? category : null;
 
-  const entries = await listPortfolioEntries();
+  // The two films we can actually play lead the list; the concepts we can only
+  // describe follow them.
+  const entries = galleryItems(await listPortfolioEntries());
   const visible = activeCategory
     ? entries.filter((entry) => entry.category === activeCategory)
     : entries;
@@ -122,42 +126,68 @@ export default async function PortfolioPage({
               }
             />
           ) : (
-            <ul className="mt-14 grid gap-x-6 gap-y-14 sm:grid-cols-2 lg:grid-cols-3">
+            <ul className="mt-14 grid gap-x-6 gap-y-14 sm:grid-cols-2 lg:grid-flow-dense lg:grid-cols-3">
+              {/* Dense placement matters here: a two-column film leaves a hole
+                  in a three-column row, and a hole beside the only real work in
+                  the gallery reads as a broken tile. Dense fills it with the
+                  next piece that fits, without changing DOM or tab order. */}
               {visible.map((entry, index) => (
                 <li
                   key={entry.id}
                   className={cn(
                     'group flex reveal flex-col',
-                    // Every third piece drops half a frame on desktop. A grid
-                    // whose rows all start at the same y-position reads as a
-                    // table of records; a staggered one reads as a contact sheet.
-                    index % 3 === 1 && 'lg:mt-16',
+                    // A film we can play is widescreen, and a widescreen frame
+                    // one column wide would be the smallest tile in a gallery
+                    // led by the only real work in it. Two columns puts it at
+                    // roughly the height of the 4:5 tile beside it, so the row
+                    // still lines up.
+                    entry.film
+                      ? 'lg:col-span-2'
+                      : // Every third placeholder drops half a frame on
+                        // desktop. A grid whose rows all start at the same
+                        // y-position reads as a table of records; a staggered
+                        // one reads as a contact sheet.
+                        index % 3 === 2 && 'lg:mt-16',
                   )}
                 >
-                  <div className="media-frame aspect-[4/5]">
-                    <PortfolioFrame
-                      seed={entry.slug}
-                      title={entry.title}
-                      category={entry.category}
-                      showLabel={false}
-                      scrim={false}
-                      className="transition-transform duration-[1.4s] ease-cinema group-hover:scale-[1.06]"
+                  {entry.film ? (
+                    // A real film: its own player, its own shape, nothing
+                    // playing until somebody presses play.
+                    <CinematicVideo
+                      videoUrl={entry.film.videoUrl}
+                      posterUrl={entry.film.posterUrl}
+                      title={entry.film.title}
+                      category={entry.film.category}
+                      description={entry.film.shortCopy}
+                      provenance={entry.film.provenance}
+                      aspect={entry.film.aspect}
                     />
+                  ) : (
+                    <div className="media-frame aspect-[4/5]">
+                      <PortfolioFrame
+                        seed={entry.slug}
+                        title={entry.title}
+                        category={entry.category}
+                        showLabel={false}
+                        scrim={false}
+                        className="transition-transform duration-[1.4s] ease-cinema group-hover:scale-[1.06]"
+                      />
 
-                    {provenanceLabel(portfolioProvenance(entry)) ? (
-                      <p className="absolute top-4 left-4 rounded-full border border-bone-50/20 bg-ink-990/55 px-3 py-1 text-[0.6rem] tracking-[0.2em] text-bone-200 uppercase backdrop-blur-sm">
-                        {provenanceLabel(portfolioProvenance(entry))}
-                      </p>
-                    ) : null}
+                      {provenanceLabel(portfolioProvenance(entry)) ? (
+                        <p className="absolute top-4 left-4 rounded-full border border-bone-50/20 bg-ink-990/55 px-3 py-1 text-[0.6rem] tracking-[0.2em] text-bone-200 uppercase backdrop-blur-sm">
+                          {provenanceLabel(portfolioProvenance(entry))}
+                        </p>
+                      ) : null}
 
-                    {/* Revealed on hover and on keyboard focus within the card,
-                        so it is not a pointer-only affordance. */}
-                    <div className="absolute inset-0 flex items-end bg-ink-990/45 opacity-0 transition-opacity duration-500 group-focus-within:opacity-100 group-hover:opacity-100 motion-reduce:transition-none">
-                      <p className="p-6 font-mono text-[0.6rem] tracking-[0.3em] text-bone-50/80 uppercase">
-                        {categoryLabel(entry.category)}
-                      </p>
+                      {/* Revealed on hover and on keyboard focus within the
+                          card, so it is not a pointer-only affordance. */}
+                      <div className="absolute inset-0 flex items-end bg-ink-990/45 opacity-0 transition-opacity duration-500 group-focus-within:opacity-100 group-hover:opacity-100 motion-reduce:transition-none">
+                        <p className="p-6 font-mono text-[0.6rem] tracking-[0.3em] text-bone-50/80 uppercase">
+                          {categoryLabel(entry.category)}
+                        </p>
+                      </div>
                     </div>
-                  </div>
+                  )}
 
                   <div className="mt-6 flex flex-1 flex-col">
                     <p className="text-[0.65rem] tracking-[0.2em] text-brass-300/75 uppercase">

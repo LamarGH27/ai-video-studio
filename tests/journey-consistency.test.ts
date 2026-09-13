@@ -1,6 +1,5 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { prose, readSource as read, stripComments } from './support/source';
 import { JOURNEY_BRIEF_STEPS, JOURNEY_PRODUCTION_STAGES } from '@/lib/journey';
 import { WIZARD_STEPS } from '@/features/create-project/types';
 import {
@@ -11,21 +10,7 @@ import {
   provenanceLabel,
 } from '@/lib/catalog/presentation';
 import { categoryLabel } from '@/lib/catalog/categories';
-
-const ROOT = process.cwd();
-const read = (path: string) => readFileSync(join(ROOT, path), 'utf8');
-
-/**
- * Source with comments removed.
- *
- * The assertions below are about what a visitor reads, and a comment explaining
- * why a line was corrected necessarily quotes the wrong line. Without this the
- * documentation of the fix fails the test for the fix.
- */
-const stripComments = (source: string) =>
-  source.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
-
-const prose = (path: string) => stripComments(read(path));
+import { SHOWCASE_FILMS, galleryItems } from '@/lib/catalog/showcase';
 
 /**
  * The journey used to be told three different ways — the homepage put photos
@@ -75,24 +60,66 @@ describe('one customer journey', () => {
  * that is both dishonest and eventually found out.
  */
 describe('portfolio credibility', () => {
-  it('treats a piece with no media as a concept', () => {
-    expect(portfolioProvenance({ mediaUrl: null })).toBe('CONCEPT');
+  it('treats anything unlabelled as a concept', () => {
+    expect(portfolioProvenance({})).toBe('CONCEPT');
+    expect(portfolioProvenance({ provenance: null })).toBe('CONCEPT');
     expect(provenanceLabel('CONCEPT')).toBe('Concept');
   });
 
   /**
-   * The rule is derived rather than stored, so it cannot go stale: publishing a
-   * real consented delivery with its media_url is what stops it being labelled
-   * a concept, and no migration or code change is needed to make that true.
+   * The regression this exists to prevent. Provenance used to be derived from
+   * whether a piece had media, which was true right up until we had real
+   * concept films: both of these have genuine media and neither was
+   * commissioned, so the old rule would have quietly promoted them.
    */
-  it('stops labelling a piece once real media is published against it', () => {
-    expect(portfolioProvenance({ mediaUrl: 'https://example.com/film.mp4' })).toBe('COMMISSION');
+  it('keeps a concept a concept even though it now has real media', () => {
+    for (const film of SHOWCASE_FILMS) {
+      expect(film.videoUrl, film.slug).toMatch(/^\/showcase\/.+\.mp4$/);
+      expect(film.provenance, film.slug).toBe('CONCEPT');
+      expect(provenanceLabel(portfolioProvenance(film)), film.slug).toBe('Concept');
+    }
+  });
+
+  it('only calls something a commission when something says so', () => {
+    expect(portfolioProvenance({ provenance: 'COMMISSION' })).toBe('COMMISSION');
     expect(provenanceLabel('COMMISSION')).toBeNull();
   });
 
   it('knows when the whole gallery is concept work', () => {
-    expect(isConceptOnlyGallery([{ mediaUrl: null }, { mediaUrl: null }])).toBe(true);
-    expect(isConceptOnlyGallery([{ mediaUrl: null }, { mediaUrl: 'x' }])).toBe(false);
+    expect(isConceptOnlyGallery([{}, { provenance: null }])).toBe(true);
+    expect(isConceptOnlyGallery([{}, { provenance: 'COMMISSION' }])).toBe(false);
+  });
+
+  it('leads the gallery with the films, without listing anything twice', () => {
+    const items = galleryItems([
+      {
+        id: 'db-1',
+        slug: 'monaco-summer',
+        title: 'Monaco, Late Summer',
+        description: null,
+        category: 'LUXURY_LIFESTYLE',
+        experienceSlug: 'luxury-lifestyle',
+      },
+      // A row that shares a slug with a declared film must not duplicate it.
+      {
+        id: 'db-2',
+        slug: 'midnight-yacht',
+        title: 'Midnight Yacht',
+        description: null,
+        category: 'LUXURY_LIFESTYLE',
+        experienceSlug: 'luxury-lifestyle',
+      },
+    ]);
+
+    expect(items.map((item) => item.slug)).toEqual([
+      'midnight-yacht',
+      'garden-wedding',
+      'monaco-summer',
+    ]);
+    expect(items[0]?.film?.videoUrl).toBe('/showcase/midnight-yacht.mp4');
+    expect(items[2]?.film).toBeNull();
+    // Still a concept gallery, media and all.
+    expect(isConceptOnlyGallery(items)).toBe(true);
   });
 
   it('makes no claim of films delivered to customers', () => {

@@ -35,31 +35,39 @@ export function experienceDisplayDescription(slug: string, storedDescription: st
 }
 
 /**
- * Provenance of a showcase piece.
+ * Provenance of a showcase piece. Stated, never inferred.
  *
- * We have not yet delivered a customer film we hold public consent to show, so
- * everything in the gallery is a concept we made to demonstrate a direction.
- * Presenting those as commissions would be inventing a client history, which is
- * both dishonest and the kind of thing that is found out.
+ * This used to be derived — a piece with no media was a concept, because there
+ * was no film to show. That rule died the moment we had real concept films:
+ * Midnight Yacht and Garden Wedding both have genuine media and are both still
+ * demonstrations we made ourselves, so "has media" would have silently promoted
+ * them to commissions. Inventing a client history is exactly the failure this
+ * function exists to prevent.
  *
- * The rule is derived rather than stored, so it needs no migration and cannot
- * go stale: a piece with no media is a concept, because there is no film to
- * show. The moment a genuine consented delivery is published with its
- * `media_url`, it stops being labelled a concept by itself — and until then the
- * label is accurate by construction.
+ * So the rule is now the conservative one: a piece is a commission only where
+ * something says so explicitly. Anything unlabelled — every `portfolio_items`
+ * row, since the table has no provenance column and migrations 000000-000700
+ * are immutable — is a concept. Being wrong in that direction understates our
+ * work; being wrong in the other direction is a lie.
+ *
+ * lib/catalog/showcase.ts is where the two real films state theirs.
  */
 export type PortfolioProvenance = 'CONCEPT' | 'COMMISSION';
 
-export function portfolioProvenance(entry: { mediaUrl: string | null }): PortfolioProvenance {
-  return entry.mediaUrl === null ? 'CONCEPT' : 'COMMISSION';
+export function portfolioProvenance(entry: {
+  provenance?: PortfolioProvenance | null;
+}): PortfolioProvenance {
+  return entry.provenance ?? 'CONCEPT';
 }
 
 export function provenanceLabel(provenance: PortfolioProvenance): string | null {
   return provenance === 'CONCEPT' ? 'Concept' : null;
 }
 
-/** The gallery is entirely concept work while nothing has been published with media. */
-export function isConceptOnlyGallery(entries: readonly { mediaUrl: string | null }[]): boolean {
+/** The gallery is entirely concept work until something is explicitly a commission. */
+export function isConceptOnlyGallery(
+  entries: readonly { provenance?: PortfolioProvenance | null }[],
+): boolean {
   return entries.every((entry) => portfolioProvenance(entry) === 'CONCEPT');
 }
 

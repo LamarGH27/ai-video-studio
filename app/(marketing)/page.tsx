@@ -4,6 +4,7 @@ import { Container } from '@/components/site/container';
 import { Button } from '@/components/ui/button';
 import { SectionHeading } from '@/components/ui/section-heading';
 import { PortfolioFrame } from '@/features/portfolio/frame';
+import { CinematicStill } from '@/features/media/cinematic-video';
 import { TransformationStrip } from '@/features/marketing/transformation-strip';
 import { Transformation } from '@/features/marketing/transformation';
 import { listPortfolioEntries } from '@/lib/data/portfolio';
@@ -12,6 +13,7 @@ import { categoryLabel } from '@/lib/catalog/categories';
 import { portfolioProvenance, provenanceLabel } from '@/lib/catalog/presentation';
 import { brand } from '@/lib/brand';
 import { JOURNEY_BRIEF_STEPS, JOURNEY_PRODUCTION_STAGES } from '@/lib/journey';
+import { FLAGSHIP_FILM, galleryItems } from '@/lib/catalog/showcase';
 import { experienceDisplayDescription, experienceDisplayName } from '@/lib/catalog/presentation';
 
 // Marketing content changes rarely and must not require a live session to render.
@@ -81,9 +83,9 @@ export default async function HomePage() {
     listActiveExperiences(),
   ]);
 
-  const featured = entries.filter((entry) => entry.featured).slice(0, 5);
-  const showcase = featured.length > 0 ? featured : entries.slice(0, 5);
-  const [lead, ...rest] = showcase;
+  // Films we can play first, then the concepts we can only describe.
+  const gallery = galleryItems(entries);
+  const [lead, ...rest] = gallery.slice(0, 5);
 
   return (
     <>
@@ -142,6 +144,8 @@ export default async function HomePage() {
               seed={lead?.slug ?? 'lead'}
               category={lead?.category ?? 'CINEMATIC'}
               title={lead?.title ?? 'A cinematic scene'}
+              scenePosterUrl={lead?.film?.posterUrl}
+              provenance={lead?.film?.provenance}
             />
           </div>
         </Container>
@@ -289,26 +293,30 @@ export default async function HomePage() {
             attribution="DEMONSTRATION"
             panels={[
               {
-                mark: 'Your photo',
+                // Stays a placeholder until somebody gives us a photograph they
+                // are happy to have on the homepage. A stock face standing in
+                // for a customer would undo the whole point of the section.
+                mark: 'Reference',
                 caption: 'A clear picture of you. The one where you actually like how you look.',
                 seed: 'stage-photo',
                 category: 'BESPOKE',
                 asSnapshot: true,
               },
               {
-                mark: 'Your idea',
+                mark: 'The idea',
                 caption:
-                  '“Walking a Monaco quayside at first light, linen suit, nobody else around.”',
+                  '“A luxury yacht at night, surrounded by friends and family, with fireworks and moonlight.”',
                 seed: 'stage-idea',
                 category: 'LUXURY_LIFESTYLE',
               },
-              {
-                mark: 'Your cinematic world',
-                caption: 'A film of that moment, graded and cut, with you at the centre of it.',
-                seed: 'stage-world',
-                category: 'CINEMATIC',
-              },
             ]}
+            result={{
+              mark: 'The cinematic result',
+              caption: FLAGSHIP_FILM.shortCopy,
+              seed: 'stage-world',
+              category: FLAGSHIP_FILM.category,
+              film: FLAGSHIP_FILM,
+            }}
           />
         </Container>
       </section>
@@ -338,20 +346,33 @@ export default async function HomePage() {
                   href={{ pathname: '/portfolio', query: { category: entry.category } }}
                   className="block focus-visible:outline-offset-4"
                 >
-                  <div className="media-frame aspect-[3/4]">
-                    <PortfolioFrame
-                      seed={entry.slug}
-                      title={entry.title}
-                      category={entry.category}
-                      showLabel={false}
-                      className="transition-transform duration-[1.4s] ease-cinema group-hover:scale-[1.06]"
+                  {entry.film ? (
+                    // A still, not a player: this card is itself a link, and a
+                    // player nested inside one is both invalid and a confusing
+                    // target. The film plays in the gallery it leads to.
+                    <CinematicStill
+                      posterUrl={entry.film.posterUrl}
+                      title={entry.film.title}
+                      provenance={entry.film.provenance}
+                      aspect="portrait"
+                      imageClassName="transition-transform duration-[1.4s] ease-cinema group-hover:scale-[1.06]"
                     />
-                    {provenanceLabel(portfolioProvenance(entry)) ? (
-                      <p className="absolute top-3.5 left-3.5 rounded-full border border-bone-50/20 bg-ink-990/55 px-2.5 py-0.5 text-[0.55rem] tracking-[0.2em] text-bone-200 uppercase backdrop-blur-sm">
-                        {provenanceLabel(portfolioProvenance(entry))}
-                      </p>
-                    ) : null}
-                  </div>
+                  ) : (
+                    <div className="media-frame aspect-[3/4]">
+                      <PortfolioFrame
+                        seed={entry.slug}
+                        title={entry.title}
+                        category={entry.category}
+                        showLabel={false}
+                        className="transition-transform duration-[1.4s] ease-cinema group-hover:scale-[1.06]"
+                      />
+                      {provenanceLabel(portfolioProvenance(entry)) ? (
+                        <p className="absolute top-3.5 left-3.5 rounded-full border border-bone-50/20 bg-ink-990/55 px-2.5 py-0.5 text-[0.55rem] tracking-[0.2em] text-bone-200 uppercase backdrop-blur-sm">
+                          {provenanceLabel(portfolioProvenance(entry))}
+                        </p>
+                      ) : null}
+                    </div>
+                  )}
                   <p className="mt-5 text-[0.65rem] tracking-[0.22em] text-brass-300/75 uppercase">
                     {categoryLabel(entry.category)}
                   </p>
