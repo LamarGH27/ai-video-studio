@@ -17,7 +17,7 @@ import { PreviewDecision } from '@/features/delivery/preview-decision';
 import { RevisionHistory } from '@/features/delivery/revision-history';
 import { Download } from 'lucide-react';
 import { consentLabel } from '@/lib/consent/definitions';
-import { orientationLabel, statusDescription } from '@/lib/projects/status';
+import { customerHeadline, orientationLabel, statusDescription } from '@/lib/projects/status';
 import { formatDate, formatDateTime } from '@/lib/utils';
 
 export const metadata: Metadata = { title: 'Project', robots: { index: false, follow: false } };
@@ -92,56 +92,72 @@ export default async function ProjectDetailPage({
         </Alert>
       ) : null}
 
-      <header className="mt-8 flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
-        <div className="space-y-3">
+      {/* The status IS the headline. Someone opening this page is asking
+          "where is my film", and the answer should not be a subtitle. */}
+      <header className="mt-8 grid gap-6 lg:grid-cols-12 lg:items-end">
+        <div className="lg:col-span-8">
           <div className="flex flex-wrap items-center gap-3">
-            <span className="font-mono text-sm tracking-wider text-bone-400">
+            <span className="font-mono text-sm tracking-wider text-bone-500">
               {project.public_reference}
             </span>
             <StatusBadge status={project.status} />
           </div>
-          <h1 className="display-heading text-[clamp(1.875rem,4.5vw,2.75rem)]">{experienceName}</h1>
-          <p className="max-w-xl leading-relaxed text-bone-400">
-            {statusDescription(project.status)}
-          </p>
+          <h1 className="mt-5 display-heading text-display-lg text-balance">
+            {customerHeadline(project.status)}
+          </h1>
+          <p className="mt-5 max-w-xl lede">{statusDescription(project.status)}</p>
         </div>
+        <p className="text-sm text-bone-500 lg:col-span-3 lg:col-start-10 lg:text-right">
+          {experienceName}
+        </p>
       </header>
 
       {/* ------------------------------------------------------- Delivery */}
       {project.status === 'COMPLETED' && finalVideo ? (
-        <section aria-labelledby="final-heading" className="mt-12">
-          <h2 id="final-heading" className="display-heading text-2xl">
-            Your film is ready.
-          </h2>
-          <p className="mt-3 max-w-xl leading-relaxed text-bone-400">
-            Delivered {formatDate(finalVideo.createdAt)}. Yours to download and keep.
-          </p>
+        <section
+          aria-labelledby="final-heading"
+          className="grain relative mt-14 overflow-hidden rounded-panel border border-emerald-400/20 surface-glow-soft"
+        >
+          <div className="grain-layer" aria-hidden="true" />
+          <div className="relative p-6 sm:p-10">
+            <p className="text-[0.65rem] tracking-[0.24em] text-emerald-300/80 uppercase">
+              Delivered {formatDate(finalVideo.createdAt)}
+            </p>
+            <h2 id="final-heading" className="mt-4 display-heading text-display-md">
+              Your film is ready.
+            </h2>
+            <p className="mt-4 max-w-xl leading-relaxed text-bone-400">
+              Yours to watch and to keep. Download it whenever you like — this page is always here.
+            </p>
 
-          <DeliveryVideoPlayer asset={finalVideo} className="mt-6" />
+            <DeliveryVideoPlayer asset={finalVideo} className="mt-8" />
 
-          <div className="mt-6">
-            <Button asChild variant="accent" size="lg">
-              {/* A plain link, not fetch(): the route authorises, then redirects
-                  to a short-lived signed URL with Content-Disposition set. */}
-              <a href={`/api/deliveries/${finalVideo.id}?download=1`}>
-                <Download aria-hidden="true" />
-                Download Final Video
-              </a>
-            </Button>
+            <div className="mt-8">
+              <Button asChild variant="accent" size="xl">
+                {/* A plain link, not fetch(): the route authorises, then redirects
+                    to a short-lived signed URL with Content-Disposition set. */}
+                <a href={`/api/deliveries/${finalVideo.id}?download=1`}>
+                  <Download aria-hidden="true" />
+                  Download Final Video
+                </a>
+              </Button>
+            </div>
           </div>
         </section>
       ) : null}
 
       {project.status === 'PREVIEW_READY' && latestPreview ? (
-        <section aria-labelledby="preview-heading" className="mt-12 space-y-8">
+        <section aria-labelledby="preview-heading" className="mt-14 space-y-8">
           <div>
-            <h2 id="preview-heading" className="display-heading text-2xl">
-              Preview {latestPreview.version}
-            </h2>
-            <p className="mt-3 max-w-xl leading-relaxed text-bone-400">
-              Uploaded {formatDate(latestPreview.createdAt)}.
-            </p>
-            <DeliveryVideoPlayer asset={latestPreview} className="mt-6" />
+            <div className="flex flex-wrap items-baseline justify-between gap-3">
+              <h2 id="preview-heading" className="display-heading text-display-md">
+                Preview {latestPreview.version}
+              </h2>
+              <p className="text-sm text-bone-500">
+                Uploaded {formatDate(latestPreview.createdAt)}
+              </p>
+            </div>
+            <DeliveryVideoPlayer asset={latestPreview} className="mt-7" />
           </div>
 
           {/* The id of the preview rendered directly above, so the decision is
@@ -270,7 +286,7 @@ export default async function ProjectDetailPage({
               <ul className="mt-4 space-y-6">
                 {previousPreviews.map((preview) => (
                   <li key={preview.id}>
-                    <p className="text-bone-300 text-sm">
+                    <p className="text-sm text-bone-300">
                       Preview {preview.version} · {formatDate(preview.createdAt)}
                     </p>
                     <DeliveryVideoPlayer asset={preview} className="mt-3" />

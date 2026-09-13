@@ -65,14 +65,15 @@ export function BriefStep({
   const briefValue = useWatch({ control, name: 'brief' }) ?? '';
 
   return (
-    <section aria-labelledby="brief-heading" className="space-y-8">
-      <header className="space-y-3">
-        <p className="eyebrow">Step 2</p>
-        <h2 id="brief-heading" className="display-heading text-3xl sm:text-4xl">
-          What would you like to happen in the video?
+    <section aria-labelledby="brief-heading" className="space-y-10">
+      <header className="max-w-2xl space-y-4">
+        <p className="eyebrow">Step 2 — Your vision</p>
+        <h2 id="brief-heading" className="display-heading text-display-md">
+          Tell us the moment you want to live.
         </h2>
-        <p className="max-w-xl leading-relaxed text-bone-400">
-          Write it the way you would describe it to a director. Specifics beat adjectives.
+        <p className="lede">
+          Where you are, what you are wearing, what happens. Write it the way you would describe it
+          to a director — specifics beat adjectives, and there is no wrong answer.
         </p>
       </header>
 
@@ -223,7 +224,7 @@ export function BriefStep({
                       className={cn(
                         'inline-flex h-10 cursor-pointer items-center rounded-full border px-5 text-sm transition-colors',
                         isSelected
-                          ? 'text-brass-200 border-brass-400/60 bg-brass-400/10'
+                          ? 'border-brass-400/60 bg-brass-400/10 text-brass-200'
                           : 'border-white/12 text-bone-400 hover:border-white/30 hover:text-bone-50',
                       )}
                     >

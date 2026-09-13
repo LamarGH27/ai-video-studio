@@ -11,23 +11,43 @@ export interface NavLink {
   label: string;
 }
 
+/**
+ * The phone menu.
+ *
+ * Most people will meet this product through a link in a social app, so this is
+ * the first navigation the majority of visitors touch — it gets full-height
+ * treatment and display-sized targets rather than a cramped dropdown.
+ *
+ * It closes on Escape, on navigation, and locks the page behind it while open
+ * so the background does not scroll under a full-screen panel.
+ */
 export function MobileNav({
   links,
   isAuthenticated,
+  isAdmin = false,
 }: {
   links: readonly NavLink[];
   isAuthenticated: boolean;
+  isAdmin?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const panelId = useId();
 
   useEffect(() => {
     if (!open) return;
+
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setOpen(false);
     };
     document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
   }, [open]);
 
   return (
@@ -37,7 +57,7 @@ export function MobileNav({
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
         aria-controls={panelId}
-        className="text-bone-100 inline-flex size-10 items-center justify-center rounded-full border border-white/15"
+        className="inline-flex size-11 items-center justify-center rounded-full border border-white/15 text-bone-200 transition-colors hover:border-white/30 hover:text-bone-50"
       >
         {open ? (
           <X className="size-5" aria-hidden="true" />
@@ -50,27 +70,43 @@ export function MobileNav({
       <div
         id={panelId}
         hidden={!open}
-        className="absolute inset-x-0 top-full border-b border-white/10 bg-ink-950/98 px-5 pb-6 backdrop-blur"
+        className="fixed inset-x-0 top-[4.5rem] bottom-0 z-50 overflow-y-auto border-t border-white/10 bg-ink-990/98 backdrop-blur-xl"
       >
-        <nav aria-label="Main" className="flex flex-col gap-1 pt-2">
-          {links.map((link) => (
+        <nav aria-label="Main" className="flex min-h-full flex-col px-5 pt-6 pb-10">
+          <ul className="space-y-1">
+            {links.map((link) => (
+              <li key={link.href}>
+                <Link
+                  href={link.href}
+                  onClick={() => setOpen(false)}
+                  className="block rounded-xl px-3 py-4 display-heading text-3xl transition-colors hover:bg-white/5"
+                >
+                  {link.label}
+                </Link>
+              </li>
+            ))}
+          </ul>
+
+          <div className="mt-8 space-y-1 border-t border-white/10 pt-6">
+            {isAdmin ? (
+              <Link
+                href="/admin"
+                onClick={() => setOpen(false)}
+                className="block rounded-xl px-3 py-3.5 text-bone-300 transition-colors hover:bg-white/5 hover:text-bone-50"
+              >
+                Admin
+              </Link>
+            ) : null}
             <Link
-              key={link.href}
-              href={link.href}
+              href={isAuthenticated ? '/dashboard' : '/login'}
               onClick={() => setOpen(false)}
-              className="rounded-lg px-3 py-3 text-sm text-bone-200 hover:bg-white/5 hover:text-bone-50"
+              className="block rounded-xl px-3 py-3.5 text-bone-300 transition-colors hover:bg-white/5 hover:text-bone-50"
             >
-              {link.label}
+              {isAuthenticated ? 'Your projects' : 'Sign In'}
             </Link>
-          ))}
-          <Link
-            href={isAuthenticated ? '/dashboard' : '/login'}
-            onClick={() => setOpen(false)}
-            className="rounded-lg px-3 py-3 text-sm text-bone-200 hover:bg-white/5 hover:text-bone-50"
-          >
-            {isAuthenticated ? 'Dashboard' : 'Sign in'}
-          </Link>
-          <Button asChild variant="accent" className="mt-3 w-full">
+          </div>
+
+          <Button asChild variant="accent" size="lg" className="mt-8 w-full">
             <Link href="/create" onClick={() => setOpen(false)}>
               Create My Video
             </Link>

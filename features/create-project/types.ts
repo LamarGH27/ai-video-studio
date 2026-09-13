@@ -37,10 +37,10 @@ export interface UploadedAsset {
 }
 
 export const WIZARD_STEPS = [
-  { id: 1, label: 'Experience' },
-  { id: 2, label: 'Brief' },
-  { id: 3, label: 'References' },
-  { id: 4, label: 'Review' },
+  { id: 1, label: 'Your idea', hint: 'The kind of film' },
+  { id: 2, label: 'Your vision', hint: 'Where, what, the mood' },
+  { id: 3, label: 'Your photos', hint: 'Reference images' },
+  { id: 4, label: 'Review', hint: 'Check and send' },
 ] as const;
 
 export type WizardStepId = (typeof WIZARD_STEPS)[number]['id'];

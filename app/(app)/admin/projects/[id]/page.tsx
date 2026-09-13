@@ -82,7 +82,7 @@ export default async function AdminProjectPage({ params }: { params: Promise<{ i
           </span>
           <StatusBadge status={project.status} />
         </div>
-        <h1 className="display-heading text-[clamp(1.875rem,4.5vw,2.75rem)]">
+        <h1 className="display-heading text-display-md">
           {project.video_experiences?.name ?? 'Custom concept'}
         </h1>
       </header>

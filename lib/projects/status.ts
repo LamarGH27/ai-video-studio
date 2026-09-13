@@ -39,49 +39,95 @@ const STATUS_META: Record<ProjectStatus, StatusMeta> = {
   DRAFT: {
     label: 'Draft',
     description: 'Not submitted yet. You can still change anything in this brief.',
-    tone: 'border-white/15 bg-white/5 text-white/70',
+    tone: 'border-white/15 bg-white/[0.04] text-bone-300',
   },
   SUBMITTED: {
     label: 'Submitted',
     description: 'Received. Your brief is queued for a producer to read.',
-    tone: 'border-sky-400/30 bg-sky-400/10 text-sky-200',
+    tone: 'border-white/20 bg-white/[0.05] text-bone-200',
   },
   ASSETS_REVIEW: {
     label: 'Assets in review',
     description: 'A producer is checking your reference images are usable.',
-    tone: 'border-amber-400/30 bg-amber-400/10 text-amber-200',
+    tone: 'border-white/20 bg-white/[0.05] text-bone-200',
   },
   IN_PRODUCTION: {
     label: 'In production',
     description: 'Your film is being made.',
-    tone: 'border-violet-400/30 bg-violet-400/10 text-violet-200',
+    tone: 'border-bone-50/25 bg-bone-50/[0.07] text-bone-100',
   },
   PREVIEW_READY: {
     label: 'Preview ready',
     description: 'A preview cut is ready for you to review.',
-    tone: 'border-teal-400/30 bg-teal-400/10 text-teal-200',
+    tone: 'border-brass-400/50 bg-brass-400/12 text-brass-200',
   },
   FINALISING: {
     label: 'Finalising',
     description: 'You approved the preview. Your final cut is being prepared.',
-    tone: 'border-indigo-400/30 bg-indigo-400/10 text-indigo-200',
+    tone: 'border-bone-50/25 bg-bone-50/[0.07] text-bone-100',
   },
   REVISION_REQUESTED: {
     label: 'Revision requested',
     description: 'Your notes are with the production team.',
-    tone: 'border-orange-400/30 bg-orange-400/10 text-orange-200',
+    tone: 'border-brass-400/30 bg-brass-400/[0.07] text-brass-300',
   },
   COMPLETED: {
     label: 'Completed',
     description: 'Delivered. Your final film is available on this project.',
-    tone: 'border-emerald-400/30 bg-emerald-400/10 text-emerald-200',
+    tone: 'border-emerald-400/35 bg-emerald-400/10 text-emerald-200',
   },
   CANCELLED: {
     label: 'Cancelled',
     description: 'This project is closed and is no longer in production.',
-    tone: 'border-rose-400/30 bg-rose-400/10 text-rose-200',
+    tone: 'border-rose-400/30 bg-rose-400/[0.07] text-rose-200',
   },
 };
+
+/**
+ * What a customer is told, in a sentence written for them.
+ *
+ * The enum names are ours: IN_PRODUCTION is an engineering fact and a stranger
+ * reading it learns nothing. These are the same nine states said in the second
+ * person, and they are what the dashboard and the project page lead with. The
+ * internal label stays available for the badge and for staff screens.
+ */
+const CUSTOMER_HEADLINES: Record<ProjectStatus, string> = {
+  DRAFT: 'Your brief is unfinished',
+  SUBMITTED: 'We have your brief',
+  ASSETS_REVIEW: 'We are checking your photos',
+  IN_PRODUCTION: 'Your film is being created',
+  PREVIEW_READY: 'Your preview is ready to watch',
+  FINALISING: 'We are finishing your film',
+  REVISION_REQUESTED: 'Your changes are with the team',
+  COMPLETED: 'Your film is ready',
+  CANCELLED: 'This project is closed',
+};
+
+/** The one thing, if anything, the customer needs to do next. */
+const CUSTOMER_NEXT_ACTION: Record<ProjectStatus, string | null> = {
+  DRAFT: 'Finish your brief',
+  SUBMITTED: null,
+  ASSETS_REVIEW: null,
+  IN_PRODUCTION: null,
+  PREVIEW_READY: 'Watch and decide',
+  FINALISING: null,
+  REVISION_REQUESTED: null,
+  COMPLETED: 'Watch and download',
+  CANCELLED: null,
+};
+
+export function customerHeadline(status: ProjectStatus): string {
+  return CUSTOMER_HEADLINES[status];
+}
+
+export function customerNextAction(status: ProjectStatus): string | null {
+  return CUSTOMER_NEXT_ACTION[status];
+}
+
+/** True while the project is waiting on the customer rather than on us. */
+export function isWaitingOnCustomer(status: ProjectStatus): boolean {
+  return status === 'PREVIEW_READY' || status === 'DRAFT';
+}
 
 export function statusLabel(status: ProjectStatus): string {
   return STATUS_META[status].label;

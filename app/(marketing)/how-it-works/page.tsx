@@ -47,47 +47,48 @@ const STEPS = [
 export default function HowItWorksPage() {
   return (
     <>
-      <section className="border-b border-white/8 surface-glow">
-        <Container className="py-20 sm:py-28">
-          <p className="eyebrow">How It Works</p>
-          <h1 className="mt-6 max-w-3xl display-heading text-[clamp(2.25rem,6vw,4rem)]">
-            A commission, not a filter.
-          </h1>
-          <p className="mt-6 max-w-xl text-base leading-relaxed text-bone-400">
+      <section className="grain relative overflow-hidden surface-glow">
+        <div className="grain-layer" aria-hidden="true" />
+        <Container className="relative grid gap-8 py-20 sm:py-28 lg:grid-cols-12 lg:items-end">
+          <div className="lg:col-span-8">
+            <p className="eyebrow">How It Works</p>
+            <h1 className="mt-6 display-heading text-display-lg text-balance">
+              A commission, not a filter.
+            </h1>
+          </div>
+          <p className="leading-relaxed text-bone-400 lg:col-span-4 lg:col-start-9">
             You write the brief and supply the photographs. We handle the production.
           </p>
         </Container>
       </section>
 
-      <section className="py-20 sm:py-24">
+      <section className="section-y rule-top">
         <Container>
-          <ol className="space-y-px overflow-hidden rounded-panel border border-white/10 bg-white/8">
+          <ol className="space-y-0">
             {STEPS.map((step) => (
               <li
                 key={step.number}
-                className="grid gap-4 bg-ink-950 p-8 sm:grid-cols-[auto_1fr] sm:gap-10 sm:p-10"
+                className="grid reveal gap-5 py-10 rule-top sm:grid-cols-12 sm:gap-8 sm:py-14"
               >
-                <p className="font-mono text-sm tracking-[0.25em] text-brass-300/70">
-                  {step.number}
-                </p>
-                <div className="max-w-2xl">
+                <p className="figure-mark sm:col-span-2">{step.number}</p>
+                <div className="sm:col-span-6">
                   <div className="flex flex-wrap items-center gap-3">
-                    <h2 className="display-heading text-2xl">{step.title}</h2>
+                    <h2 className="display-heading text-2xl sm:text-3xl">{step.title}</h2>
                     {step.available ? null : (
-                      <Badge className="text-brass-200 border-brass-400/25 bg-brass-400/10">
+                      <Badge className="border-brass-400/25 bg-brass-400/10 text-brass-200">
                         Coming soon
                       </Badge>
                     )}
                   </div>
-                  <p className="mt-3 leading-relaxed text-bone-400">{step.body}</p>
                 </div>
+                <p className="leading-relaxed text-bone-400 sm:col-span-4">{step.body}</p>
               </li>
             ))}
           </ol>
 
-          <div className="mt-16 rounded-panel border border-white/10 p-8 sm:p-10">
-            <h2 className="display-heading text-2xl">What we do with your photographs</h2>
-            <ul className="mt-6 grid gap-4 text-sm leading-relaxed text-bone-400 sm:grid-cols-2">
+          <div className="mt-20 rounded-panel border border-white/10 bg-white/[0.02] p-8 sm:p-12">
+            <h2 className="display-heading text-display-md">What we do with your photographs</h2>
+            <ul className="mt-8 grid gap-x-12 gap-y-5 leading-relaxed text-bone-400 sm:grid-cols-2">
               <li>
                 They are stored in private storage. There is no public link to them, and none can be
                 created.
@@ -107,8 +108,8 @@ export default function HowItWorksPage() {
             </ul>
           </div>
 
-          <div className="mt-16 text-center">
-            <Button asChild size="lg" variant="accent">
+          <div className="mt-20 text-center">
+            <Button asChild size="xl" variant="accent">
               <Link href="/create">
                 Create My Video
                 <ArrowRight aria-hidden="true" />

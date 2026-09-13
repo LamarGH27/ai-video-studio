@@ -83,88 +83,98 @@ export function PreviewDecision({
   return (
     <section
       aria-labelledby="preview-decision-heading"
-      className="rounded-panel border border-brass-400/30 bg-brass-400/[0.04] p-6 sm:p-8"
+      className="grain relative overflow-hidden rounded-panel border border-brass-400/30 bg-brass-400/[0.045] p-6 sm:p-9"
     >
-      <h2 id="preview-decision-heading" className="display-heading text-2xl">
-        Your preview is ready.
-      </h2>
-      <p className="text-bone-300 mt-3 max-w-xl leading-relaxed">
-        Watch it through, then tell us whether to finish it as it is or make changes. Nothing
-        happens until you choose.
-      </p>
+      <div className="grain-layer" aria-hidden="true" />
+      <div className="relative">
+        <p className="eyebrow">Over to you</p>
+        <h2 id="preview-decision-heading" className="mt-4 display-heading text-display-md">
+          What do you think?
+        </h2>
+        <p className="mt-4 max-w-xl leading-relaxed text-bone-300">
+          Watch it through, then tell us whether to finish it as it is or make changes. Nothing
+          happens until you choose, and asking for changes costs you nothing.
+        </p>
 
-      {error ? (
-        <Alert tone="error" className="mt-6">
-          {error}
-        </Alert>
-      ) : null}
+        {error ? (
+          <Alert tone="error" className="mt-6">
+            {error}
+          </Alert>
+        ) : null}
 
-      {mode === 'idle' ? (
-        <div className="mt-7 flex flex-col gap-3 sm:flex-row">
-          <Button type="button" variant="accent" size="lg" onClick={approve} disabled={pending}>
-            {pending ? <Spinner label="Approving" /> : <Check aria-hidden="true" />}
-            {pending ? 'Approving…' : 'Approve Preview'}
-          </Button>
+        {mode === 'idle' ? (
+          <div className="mt-9 flex flex-col gap-3 sm:flex-row">
+            <Button type="button" variant="accent" size="xl" onClick={approve} disabled={pending}>
+              {pending ? <Spinner label="Approving" /> : <Check aria-hidden="true" />}
+              {pending ? 'Approving…' : 'Approve Preview'}
+            </Button>
 
-          <Button
-            type="button"
-            variant="outline"
-            size="lg"
-            disabled={pending}
-            onClick={() => {
-              setError(null);
-              setMode('revision');
-            }}
-          >
-            <MessageSquare aria-hidden="true" />
-            Request Revision
-          </Button>
-        </div>
-      ) : (
-        <div className="mt-7 space-y-5">
-          <Field
-            id="revision-message"
-            label="What would you like changed?"
-            description="Be as specific as you can — which moment, and what should be different. One request at a time."
-            error={fieldError ?? undefined}
-            required
-          >
-            {(props) => (
-              <>
-                <Textarea
-                  {...props}
-                  value={message}
-                  onChange={(event) => setMessage(event.target.value)}
-                  rows={5}
-                  maxLength={MAX_REVISION_MESSAGE_LENGTH}
-                  placeholder="The walk along the deck is too fast — could it hold a beat longer at the railing? Everything else is right."
-                />
-                <p className="mt-2 text-right text-xs text-bone-400/70" aria-live="polite">
-                  {message.trim().length} / {MAX_REVISION_MESSAGE_LENGTH}
-                </p>
-              </>
-            )}
-          </Field>
-
-          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
             <Button
               type="button"
-              variant="ghost"
+              variant="outline"
+              size="xl"
               disabled={pending}
               onClick={() => {
-                setMode('idle');
-                setFieldError(null);
+                setError(null);
+                setMode('revision');
               }}
             >
-              Cancel
-            </Button>
-            <Button type="button" variant="accent" onClick={requestRevision} disabled={pending}>
-              {pending ? <Spinner label="Sending your request" /> : null}
-              {pending ? 'Sending…' : 'Send revision request'}
+              <MessageSquare aria-hidden="true" />
+              Request Revision
             </Button>
           </div>
-        </div>
-      )}
+        ) : (
+          <div className="mt-9 space-y-6">
+            <Field
+              id="revision-message"
+              label="What would you like changed?"
+              description="Be as specific as you can — which moment, and what should be different. One request at a time."
+              error={fieldError ?? undefined}
+              required
+            >
+              {(props) => (
+                <>
+                  <Textarea
+                    {...props}
+                    value={message}
+                    onChange={(event) => setMessage(event.target.value)}
+                    rows={5}
+                    maxLength={MAX_REVISION_MESSAGE_LENGTH}
+                    placeholder="The walk along the deck is too fast — could it hold a beat longer at the railing? Everything else is right."
+                  />
+                  <p className="mt-2 text-right text-xs text-bone-400/70" aria-live="polite">
+                    {message.trim().length} / {MAX_REVISION_MESSAGE_LENGTH}
+                  </p>
+                </>
+              )}
+            </Field>
+
+            <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={pending}
+                onClick={() => {
+                  setMode('idle');
+                  setFieldError(null);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="accent"
+                size="lg"
+                onClick={requestRevision}
+                disabled={pending}
+              >
+                {pending ? <Spinner label="Sending your request" /> : null}
+                {pending ? 'Sending…' : 'Send revision request'}
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
     </section>
   );
 }

@@ -1,40 +1,66 @@
 import Link from 'next/link';
+import type { Route } from 'next';
+import { brand, copyrightLine } from '@/lib/brand';
 import { Container } from './container';
 
-const FOOTER_LINKS = [
-  { href: '/portfolio', label: 'Portfolio' },
-  { href: '/how-it-works', label: 'How It Works' },
-  { href: '/pricing', label: 'Pricing' },
-  { href: '/create', label: 'Create My Video' },
-] as const;
+const EXPLORE: readonly { href: Route; label: string }[] = [
+  { href: '/#experiences' as Route, label: 'Experiences' },
+  { href: '/portfolio' as Route, label: 'Portfolio' },
+  { href: '/how-it-works' as Route, label: 'How It Works' },
+  { href: '/pricing' as Route, label: 'Pricing' },
+];
+
+const ACCOUNT: readonly { href: Route; label: string }[] = [
+  { href: '/create' as Route, label: 'Create My Video' },
+  { href: '/dashboard' as Route, label: 'Your projects' },
+  { href: '/login' as Route, label: 'Sign in' },
+];
 
 export function SiteFooter() {
   return (
-    <footer className="mt-auto border-t border-white/8 py-14">
-      <Container className="flex flex-col gap-10 sm:flex-row sm:items-start sm:justify-between">
-        <div className="max-w-xs space-y-3">
-          <p className="display-heading text-lg">AI Video Studio</p>
-          <p className="text-sm leading-relaxed text-bone-400">
-            Bespoke cinematic AI-generated video, made from photographs you already have.
-          </p>
+    <footer className="mt-auto surface-glow-soft rule-top">
+      <Container className="grid gap-12 py-16 sm:py-20 lg:grid-cols-12 lg:gap-10">
+        <div className="max-w-sm lg:col-span-5">
+          <p className="display-heading text-2xl">{brand.name}</p>
+          <p className="mt-4 leading-relaxed text-bone-400">{brand.proposition}</p>
         </div>
 
-        <nav aria-label="Footer" className="flex flex-col gap-3">
-          {FOOTER_LINKS.map((link) => (
-            <Link
-              key={link.href}
-              href={link.href}
-              className="text-sm text-bone-400 transition-colors hover:text-bone-50"
-            >
-              {link.label}
-            </Link>
-          ))}
+        <nav aria-label="Explore" className="lg:col-span-3 lg:col-start-7">
+          <p className="text-xs tracking-[0.2em] text-bone-500 uppercase">Explore</p>
+          <ul className="mt-5 space-y-3">
+            {EXPLORE.map((link) => (
+              <li key={link.href}>
+                <Link
+                  href={link.href}
+                  className="text-sm text-bone-400 transition-colors hover:text-bone-50"
+                >
+                  {link.label}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </nav>
+
+        <nav aria-label="Your account" className="lg:col-span-3">
+          <p className="text-xs tracking-[0.2em] text-bone-500 uppercase">Your account</p>
+          <ul className="mt-5 space-y-3">
+            {ACCOUNT.map((link) => (
+              <li key={link.href}>
+                <Link
+                  href={link.href}
+                  className="text-sm text-bone-400 transition-colors hover:text-bone-50"
+                >
+                  {link.label}
+                </Link>
+              </li>
+            ))}
+          </ul>
         </nav>
       </Container>
 
-      <Container className="mt-12 flex flex-col gap-2 border-t border-white/8 pt-8 text-xs text-bone-400/70 sm:flex-row sm:items-center sm:justify-between">
-        <p>© {new Date().getFullYear()} AI Video Studio. All rights reserved.</p>
-        <p>Adults only. We only work from images you are permitted to use.</p>
+      <Container className="flex flex-col gap-3 py-8 text-xs text-bone-500 rule-top sm:flex-row sm:items-center sm:justify-between">
+        <p>{copyrightLine(new Date().getFullYear())}</p>
+        <p>Adults only. We work only from images you hold permission to use.</p>
       </Container>
     </footer>
   );

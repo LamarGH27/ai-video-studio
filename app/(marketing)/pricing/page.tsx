@@ -50,7 +50,7 @@ export default function PricingPage() {
                   <div className="flex items-center justify-between gap-4">
                     <h2 className="display-heading text-2xl">{tier.name}</h2>
                     {tier.highlighted ? (
-                      <span className="text-brass-200 rounded-full border border-brass-400/30 px-2.5 py-1 text-[0.65rem] tracking-[0.18em] uppercase">
+                      <span className="rounded-full border border-brass-400/30 px-2.5 py-1 text-[0.65rem] tracking-[0.18em] text-brass-200 uppercase">
                         Most chosen
                       </span>
                     ) : null}
@@ -65,7 +65,7 @@ export default function PricingPage() {
                     </span>
                   </p>
 
-                  <ul className="text-bone-300 mt-8 flex-1 space-y-3 text-sm">
+                  <ul className="mt-8 flex-1 space-y-3 text-sm text-bone-300">
                     {tier.includes.map((line) => (
                       <li key={line} className="flex gap-3">
                         <Check

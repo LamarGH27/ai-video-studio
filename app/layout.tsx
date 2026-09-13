@@ -1,32 +1,33 @@
 import type { Metadata, Viewport } from 'next';
 import { siteUrl } from '@/lib/env';
+import { brand } from '@/lib/brand';
+import { displayFont, sansFont } from '@/lib/brand/fonts';
 import './globals.css';
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl()),
   title: {
-    default: 'AI Video Studio — Your photos. Your vision. Your movie.',
-    template: '%s · AI Video Studio',
+    default: `${brand.name} — ${brand.tagline}`,
+    template: `%s · ${brand.name}`,
   },
-  description:
-    'Turn existing photographs into bespoke cinematic AI-generated video experiences, produced to brief.',
+  description: brand.proposition,
   openGraph: {
-    title: 'AI Video Studio',
-    description: 'Turn existing photographs into bespoke cinematic AI-generated video experiences.',
+    title: brand.name,
+    description: brand.proposition,
     type: 'website',
   },
   robots: { index: true, follow: true },
 };
 
 export const viewport: Viewport = {
-  themeColor: '#0b0b0d',
+  themeColor: '#0a0a0c',
   width: 'device-width',
   initialScale: 1,
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" className={`${displayFont.variable} ${sansFont.variable}`}>
       <body className="min-h-dvh antialiased">
         <a
           href="#main"

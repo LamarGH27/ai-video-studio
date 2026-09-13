@@ -65,6 +65,7 @@ export function CreateWizard({
 
   const headingRef = useRef<HTMLDivElement>(null);
   const hasRestored = useRef(false);
+  const hasMounted = useRef(false);
 
   /*
    * Restore a brief left behind before signing up. Only when the server did not
@@ -143,9 +144,20 @@ export function CreateWizard({
     writeStoredDraft(values);
   }, [values, projectId]);
 
-  // Move focus to the step heading on each change, so keyboard and screen reader
-  // users are not left at the bottom of the previous step.
+  /*
+   * Move focus to the step heading on each CHANGE, so keyboard and screen reader
+   * users are not left at the bottom of the previous step.
+   *
+   * Deliberately not on first render. Nobody has navigated anywhere yet, and
+   * focusing on mount both steals focus from whatever the person was doing and
+   * scrolls the page down before they have seen the top of it — which on a phone
+   * left the progress rail sitting half-hidden behind the sticky header.
+   */
   useEffect(() => {
+    if (!hasMounted.current) {
+      hasMounted.current = true;
+      return;
+    }
     headingRef.current?.focus();
   }, [step]);
 
@@ -272,7 +284,9 @@ export function CreateWizard({
         <Stepper current={step} furthestReached={furthestReached} onSelect={goTo} />
       </div>
 
-      <div ref={headingRef} tabIndex={-1} className="outline-none">
+      {/* The scroll margin clears the sticky header AND the progress rail above,
+          so moving between steps never scrolls the rail out of sight. */}
+      <div ref={headingRef} tabIndex={-1} className="scroll-mt-44 outline-none">
         {step === 1 ? (
           <ExperienceStep
             experiences={experiences}

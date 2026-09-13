@@ -32,10 +32,7 @@ export function NextActionPanel({
 
   return (
     <section aria-labelledby="next-action-heading" className="space-y-5">
-      <h2
-        id="next-action-heading"
-        className="text-sm font-medium tracking-wide text-bone-400 uppercase"
-      >
+      <h2 id="next-action-heading" className="eyebrow">
         Next production action
       </h2>
 
@@ -46,9 +43,9 @@ export function NextActionPanel({
             : `This project is ${statusLabel(status).toLowerCase()}. No production action is required.`}
         </Alert>
       ) : (
-        <div className="rounded-panel border border-brass-400/30 bg-brass-400/[0.04] p-6">
-          <p className="display-heading text-xl">{action.label}</p>
-          <p className="text-bone-300 mt-2 text-sm leading-relaxed">{action.hint}</p>
+        <div className="rounded-panel border border-brass-400/35 bg-brass-400/[0.055] p-6 sm:p-7">
+          <p className="display-heading text-2xl">{action.label}</p>
+          <p className="mt-2.5 text-sm leading-relaxed text-bone-300">{action.hint}</p>
 
           {action.upload ? (
             <div className="mt-6">
@@ -68,10 +65,10 @@ export function NextActionPanel({
       )}
 
       <div>
-        <h3 className="text-xs tracking-wide text-bone-400/70 uppercase">
+        <h3 className="text-[0.65rem] tracking-[0.2em] text-bone-500 uppercase">
           {transitions.length > 0 ? 'Other permitted transitions' : 'Transitions'}
         </h3>
-        <p className="mt-2 text-xs leading-relaxed text-bone-400/70">
+        <p className="mt-2.5 text-xs leading-relaxed text-bone-500">
           Only moves the database permits are shown — and it re-checks every one, so these buttons
           reflect the rules rather than enforcing them.
         </p>

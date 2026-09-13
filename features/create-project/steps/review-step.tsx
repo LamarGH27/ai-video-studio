@@ -71,10 +71,10 @@ export function ReviewStep({
   ];
 
   return (
-    <section aria-labelledby="review-heading" className="space-y-8">
-      <header className="space-y-3">
-        <p className="eyebrow">Step 4</p>
-        <h2 id="review-heading" className="display-heading text-3xl sm:text-4xl">
+    <section aria-labelledby="review-heading" className="space-y-10">
+      <header className="max-w-2xl space-y-4">
+        <p className="eyebrow">Step 4 — Review</p>
+        <h2 id="review-heading" className="display-heading text-display-md">
           Check it over, then send it to production.
         </h2>
         {publicReference ? (

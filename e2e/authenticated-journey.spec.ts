@@ -64,7 +64,7 @@ test.describe('Customer A journey', () => {
     await page.goto('/create');
 
     await page.getByText('Luxury Lifestyle', { exact: true }).first().click();
-    await page.getByRole('button', { name: /Continue to your brief/ }).click();
+    await page.getByRole('button', { name: /Continue to your vision/ }).click();
     await page
       .getByLabel('Your brief')
       .fill(`Consent gate check ${Date.now()}: a cinematic walk through a Monaco marina at dusk.`);

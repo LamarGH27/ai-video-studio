@@ -113,10 +113,7 @@ export default async function AdminNotificationsPage() {
       ) : null}
 
       <section aria-labelledby="recent-heading" className="mt-12">
-        <h2
-          id="recent-heading"
-          className="text-sm font-medium tracking-wide text-bone-400 uppercase"
-        >
+        <h2 id="recent-heading" className="eyebrow">
           Recent notifications
         </h2>
 
@@ -187,7 +184,7 @@ export default async function AdminNotificationsPage() {
                           <span className="text-bone-400/70">—</span>
                         )}
                       </td>
-                      <td className="text-bone-300 py-4 pr-4">
+                      <td className="py-4 pr-4 text-bone-300">
                         {notification.recipient === 'ADMIN'
                           ? 'Studio team'
                           : (notification.recipient_email ?? '—')}
@@ -197,7 +194,7 @@ export default async function AdminNotificationsPage() {
                           {dead ? 'Stopped' : notification.status.toLowerCase()}
                         </Badge>
                       </td>
-                      <td className="text-bone-300 py-4 pr-4">{notification.attempt_count}</td>
+                      <td className="py-4 pr-4 text-bone-300">{notification.attempt_count}</td>
                       <td className="py-4 pr-4 text-bone-400/80">
                         {formatDateTime(notification.created_at)}
                       </td>

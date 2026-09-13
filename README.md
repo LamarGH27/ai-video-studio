@@ -80,19 +80,20 @@ cp .env.example .env.local   # then fill it in — see below
 Copy `.env.example` to `.env.local`. **Never commit `.env.local`, and never put a
 real key in `.env.example`.**
 
-| Variable                               | Where     | Required | Purpose                                               |
-| -------------------------------------- | --------- | -------- | ----------------------------------------------------- |
-| `NEXT_PUBLIC_SUPABASE_URL`             | client    | yes      | Supabase project URL                                  |
-| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | client    | yes      | Publishable key; every request still goes through RLS |
-| `NEXT_PUBLIC_SITE_URL`                 | client    | yes      | Absolute origin, used to build auth redirect URLs     |
-| `E2E_CUSTOMER_A_EMAIL` / `_PASSWORD`   | test only | no       | Enables the authenticated Playwright specs            |
-| `E2E_CUSTOMER_B_EMAIL` / `_PASSWORD`   | test only | no       | Enables the cross-customer isolation specs            |
-| `E2E_ADMIN_EMAIL` / `_PASSWORD`        | test only | no       | Enables the admin specs                               |
-| `RESEND_API_KEY`                       | server    | no\*     | Transactional email provider credential               |
-| `EMAIL_FROM`                           | server    | no\*     | Verified sender address                               |
-| `ADMIN_NOTIFICATION_EMAIL`             | server    | no\*     | Where operational notifications go                    |
-| `CRON_SECRET`                          | server    | no\*     | Protects the notification worker endpoint             |
-| `SUPABASE_SECRET_KEY`                  | server    | no\*     | The notification worker's database credential         |
+| Variable                               | Where     | Required | Purpose                                                          |
+| -------------------------------------- | --------- | -------- | ---------------------------------------------------------------- |
+| `NEXT_PUBLIC_SUPABASE_URL`             | client    | yes      | Supabase project URL                                             |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | client    | yes      | Publishable key; every request still goes through RLS            |
+| `NEXT_PUBLIC_SITE_URL`                 | client    | yes      | Absolute origin, used to build auth redirect URLs                |
+| `NEXT_PUBLIC_BRAND_NAME`               | client    | no       | Overrides the product name; defaults to the value in `lib/brand` |
+| `E2E_CUSTOMER_A_EMAIL` / `_PASSWORD`   | test only | no       | Enables the authenticated Playwright specs                       |
+| `E2E_CUSTOMER_B_EMAIL` / `_PASSWORD`   | test only | no       | Enables the cross-customer isolation specs                       |
+| `E2E_ADMIN_EMAIL` / `_PASSWORD`        | test only | no       | Enables the admin specs                                          |
+| `RESEND_API_KEY`                       | server    | no\*     | Transactional email provider credential                          |
+| `EMAIL_FROM`                           | server    | no\*     | Verified sender address                                          |
+| `ADMIN_NOTIFICATION_EMAIL`             | server    | no\*     | Where operational notifications go                               |
+| `CRON_SECRET`                          | server    | no\*     | Protects the notification worker endpoint                        |
+| `SUPABASE_SECRET_KEY`                  | server    | no\*     | The notification worker's database credential                    |
 
 \* Required for transactional email. Without them the application runs
 normally, notifications queue up, and the worker refuses to pretend it sent
@@ -367,6 +368,13 @@ Setup, the eight required secrets, and how to read the results:
 `docs/rls-verification.sql` contains the same critical assertions as a single
 script you can paste into the Supabase SQL Editor against a live project. See
 [`docs/database.md`](docs/database.md).
+
+### Design system
+
+The visual language — palette, type, rhythm, media treatment, motion and the
+accessibility rules that constrain all of it — is documented in
+[`docs/design-system.md`](docs/design-system.md). The product name lives in
+`lib/brand/index.ts` and nowhere else, so renaming it is one file.
 
 ### Transactional email
 

@@ -85,22 +85,29 @@ export default async function CreatePage({
 
   return (
     <>
-      <section className="border-b border-white/8 surface-glow">
-        <Container className="py-14 sm:py-20">
-          <p className="eyebrow">Create My Video</p>
-          <h1 className="mt-5 max-w-2xl display-heading text-[clamp(2rem,5vw,3.25rem)]">
-            Let&rsquo;s build your film.
-          </h1>
+      <section className="grain relative overflow-hidden surface-glow rule-top">
+        <div className="grain-layer" aria-hidden="true" />
+        <Container className="relative grid gap-8 py-16 sm:py-20 lg:grid-cols-12 lg:items-end">
+          <div className="lg:col-span-7">
+            <p className="eyebrow">Create My Video</p>
+            <h1 className="mt-6 display-heading text-display-lg text-balance">
+              Let&rsquo;s build your film.
+            </h1>
+          </div>
+          <p className="leading-relaxed text-bone-400 lg:col-span-4 lg:col-start-9">
+            Four short steps. Nothing is sent until you review it, and you can leave and come back —
+            your brief is kept.
+          </p>
         </Container>
       </section>
 
       {!configured ? (
         <Container className="pt-10">
           <Alert tone="error" title="This environment is not connected to Supabase">
-            Set <code className="font-mono">NEXT_PUBLIC_SUPABASE_URL</code> and{' '}
-            <code className="font-mono">NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY</code> to enable
-            accounts, uploads and project submission. See{' '}
-            <code className="font-mono">.env.example</code>.
+            Set <code className="font-mono break-all">NEXT_PUBLIC_SUPABASE_URL</code> and{' '}
+            <code className="font-mono break-all">NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY</code> to
+            enable accounts, uploads and project submission. See{' '}
+            <code className="font-mono break-all">.env.example</code>.
           </Alert>
         </Container>
       ) : null}

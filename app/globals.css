@@ -1,41 +1,69 @@
 @import 'tailwindcss';
 
 /* =============================================================================
-   AI Video Studio — design tokens
+   Design tokens
    -----------------------------------------------------------------------------
-   A single dark, cinematic surface. The palette is deliberately narrow: near
-   black grounds, a warm bone foreground, and one restrained brass accent that
-   does the work of a brand colour without shouting.
+   One dark cinematic surface. The palette stays narrow on purpose: a room lit
+   by a few good lights reads as expensive, a room lit by twelve reads as a
+   showroom. Near-black grounds, a warm bone foreground, brass as the single
+   brand accent, and a deep plum kept in reserve for the rare moment that needs
+   a second temperature.
+
+   Brass was already doing the right job before this milestone and is kept —
+   what changes is the range around it, the type scale, and the rhythm.
    ========================================================================== */
 
 @theme {
+  /* ---- Grounds. Warmer and deeper than a neutral grey; film is never grey. */
+  --color-ink-990: oklch(0.115 0.005 285);
   --color-ink-950: oklch(0.145 0.006 285);
   --color-ink-900: oklch(0.178 0.006 285);
   --color-ink-850: oklch(0.208 0.007 285);
   --color-ink-800: oklch(0.244 0.008 285);
 
+  /* ---- Foreground. Bone, not white: pure white on near-black glares. */
   --color-bone-50: oklch(0.975 0.006 90);
   --color-bone-200: oklch(0.905 0.008 90);
+  --color-bone-300: oklch(0.83 0.01 90);
   --color-bone-400: oklch(0.74 0.012 90);
+  --color-bone-500: oklch(0.63 0.012 90);
 
+  /* ---- Brass. The brand accent, and the only saturated colour in routine use. */
+  --color-brass-200: oklch(0.92 0.055 85);
   --color-brass-300: oklch(0.86 0.09 82);
   --color-brass-400: oklch(0.8 0.115 78);
   --color-brass-500: oklch(0.73 0.13 74);
+  --color-brass-600: oklch(0.62 0.12 70);
 
-  --font-display: 'Georgia', 'Times New Roman', ui-serif, serif;
+  /* ---- Plum. Held in reserve: used for depth behind media, never for text. */
+  --color-plum-900: oklch(0.22 0.045 330);
+  --color-plum-800: oklch(0.28 0.06 328);
+
+  /*
+   * next/font injects --font-display-face / --font-sans-face onto <html>.
+   * These names are deliberately different from the theme tokens below: a
+   * token defined as var(--itself) is self-referential and silently invalid,
+   * and the symptom is a page that falls back to Times without any error.
+   */
+  --font-display: var(--font-display-face), Georgia, 'Times New Roman', ui-serif, serif;
   --font-sans:
-    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    var(--font-sans-face), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 
   --radius-panel: 1.25rem;
+  --radius-frame: 0.75rem;
 
-  --animate-rise: rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
-  --animate-fade: fade 0.6s ease-out both;
+  /* ---- Motion. One curve, three durations. Everything else is a variation. */
+  --ease-cinema: cubic-bezier(0.22, 1, 0.36, 1);
+  --animate-rise: rise 0.8s var(--ease-cinema) both;
+  --animate-fade: fade 0.7s ease-out both;
+  --animate-curtain: curtain 1.1s var(--ease-cinema) both;
+  --animate-drift: drift 24s ease-in-out infinite alternate;
 }
 
 @keyframes rise {
   from {
     opacity: 0;
-    transform: translateY(14px);
+    transform: translateY(18px);
   }
   to {
     opacity: 1;
@@ -49,6 +77,30 @@
   }
   to {
     opacity: 1;
+  }
+}
+
+/* A frame opening: used once, on the hero image, and nowhere else. */
+@keyframes curtain {
+  from {
+    opacity: 0;
+    clip-path: inset(18% 8% 18% 8%);
+    transform: scale(1.06);
+  }
+  to {
+    opacity: 1;
+    clip-path: inset(0 0 0 0);
+    transform: none;
+  }
+}
+
+/* Very slow parallax on decorative grounds. Never on anything being read. */
+@keyframes drift {
+  from {
+    transform: scale(1.06) translate3d(-1.5%, -1%, 0);
+  }
+  to {
+    transform: scale(1.06) translate3d(1.5%, 1%, 0);
   }
 }
 
@@ -67,8 +119,8 @@
   }
 
   body {
-    background-color: var(--color-ink-950);
-    color: var(--color-bone-200);
+    background-color: var(--color-ink-990);
+    color: var(--color-bone-300);
     font-family: var(--font-sans);
     font-synthesis-weight: none;
     text-rendering: optimizeLegibility;
@@ -77,8 +129,8 @@
   /* Visible, consistent focus everywhere. Never remove without a replacement. */
   :focus-visible {
     outline: 2px solid var(--color-brass-400);
-    outline-offset: 2px;
-    border-radius: 2px;
+    outline-offset: 3px;
+    border-radius: 3px;
   }
 
   ::selection {
@@ -86,7 +138,12 @@
     color: var(--color-bone-50);
   }
 
-  /* Respect a user's motion preference — the site must work without animation. */
+  /*
+   * Respect a user's motion preference. Everything below degrades to a static
+   * page — no reveal is load-bearing, so nothing disappears when animation is
+   * switched off. Reveals in particular must END VISIBLE rather than being left
+   * at opacity 0, which is the classic way this goes wrong.
+   */
   @media (prefers-reduced-motion: reduce) {
     *,
     *::before,
@@ -99,33 +156,174 @@
   }
 }
 
+/* =============================================================================
+   Typography
+   ========================================================================== */
+
+/* Display type. Serif, tight, optically light — for headlines only. */
 @utility display-heading {
   font-family: var(--font-display);
   font-weight: 400;
-  letter-spacing: -0.02em;
-  line-height: 1.02;
+  letter-spacing: -0.015em;
+  line-height: 1.03;
   color: var(--color-bone-50);
+}
+
+/* The three display sizes actually in use. Anything else is a one-off. */
+@utility text-display-xl {
+  font-size: clamp(3rem, 9vw, 6.5rem);
+}
+@utility text-display-lg {
+  font-size: clamp(2.25rem, 5.5vw, 4rem);
+}
+@utility text-display-md {
+  font-size: clamp(1.75rem, 3.5vw, 2.5rem);
 }
 
 @utility eyebrow {
   font-size: 0.6875rem;
   font-weight: 500;
-  letter-spacing: 0.22em;
+  letter-spacing: 0.24em;
   text-transform: uppercase;
   color: var(--color-brass-300);
 }
 
-/* Film-grain-adjacent vignette used behind hero and section headers. */
+/* A numeral used as a graphic element: step counts, chapter marks. */
+@utility figure-mark {
+  font-family: var(--font-display);
+  font-size: clamp(2.5rem, 6vw, 4rem);
+  line-height: 0.9;
+  color: color-mix(in oklab, var(--color-brass-400) 45%, transparent);
+}
+
+/* Body copy at reading width. Paired with max-w-prose or an explicit measure. */
+@utility lede {
+  font-size: clamp(1.0625rem, 1.6vw, 1.25rem);
+  line-height: 1.6;
+  color: var(--color-bone-400);
+}
+
+/* =============================================================================
+   Rhythm
+   -----------------------------------------------------------------------------
+   Sections breathe at one of two scales. Using these instead of ad-hoc padding
+   is what makes the whole page feel composed rather than assembled.
+   ========================================================================== */
+
+@utility section-y {
+  padding-block: clamp(5rem, 11vw, 9rem);
+}
+
+@utility section-y-lg {
+  padding-block: clamp(7rem, 15vw, 13rem);
+}
+
+/* A hairline that reads as a rule in a magazine rather than a table border. */
+@utility rule-top {
+  border-top: 1px solid color-mix(in oklab, var(--color-bone-50) 12%, transparent);
+}
+
+/* =============================================================================
+   Surfaces
+   ========================================================================== */
+
+/* Light spill behind a hero or a section head. Deliberately off-centre. */
 @utility surface-glow {
   background-image:
     radial-gradient(
-      60rem 30rem at 50% -10%,
-      color-mix(in oklab, var(--color-brass-500) 12%, transparent),
-      transparent 70%
+      64rem 34rem at 18% -8%,
+      color-mix(in oklab, var(--color-brass-500) 13%, transparent),
+      transparent 68%
     ),
     radial-gradient(
-      40rem 24rem at 90% 10%,
-      color-mix(in oklab, var(--color-brass-400) 7%, transparent),
+      44rem 26rem at 92% 8%,
+      color-mix(in oklab, var(--color-plum-800) 28%, transparent),
       transparent 70%
     );
+}
+
+/* The same idea, quieter, for the foot of a page. */
+@utility surface-glow-soft {
+  background-image: radial-gradient(
+    52rem 28rem at 50% 110%,
+    color-mix(in oklab, var(--color-brass-500) 10%, transparent),
+    transparent 70%
+  );
+}
+
+/*
+ * Film grain. A single tiled SVG of fractal noise at very low opacity — the
+ * detail that stops a flat dark page looking like a PDF. No image request, no
+ * layout cost, and it sits under a pointer-events-none layer.
+ */
+@utility grain {
+  position: relative;
+}
+@utility grain-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.35;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
+}
+
+/*
+ * A media frame: the standard container for anything image- or video-shaped.
+ * One place to change how media is presented across the whole product.
+ */
+@utility media-frame {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-frame);
+  border: 1px solid color-mix(in oklab, var(--color-bone-50) 12%, transparent);
+  background-color: var(--color-ink-900);
+}
+
+/* Letterboxing over media, so text on top always has something to sit on. */
+@utility media-scrim {
+  background-image: linear-gradient(
+    to top,
+    color-mix(in oklab, var(--color-ink-990) 88%, transparent) 0%,
+    color-mix(in oklab, var(--color-ink-990) 40%, transparent) 38%,
+    transparent 72%
+  );
+}
+
+/* =============================================================================
+   Reveal on scroll
+   -----------------------------------------------------------------------------
+   Pure CSS, no observer and no JavaScript: `animation-timeline: view()` where
+   the browser supports it, and plain visible content where it does not. The
+   @supports guard is what keeps this from being a blank page in Safari — the
+   default state is VISIBLE and the animation is added, never the reverse.
+   ========================================================================== */
+
+@utility reveal {
+  @supports (animation-timeline: view()) {
+    @media (prefers-reduced-motion: no-preference) {
+      animation: rise linear both;
+      animation-timeline: view();
+      animation-range: entry 5% cover 26%;
+    }
+  }
+}
+
+/* Children appear in sequence. Used sparingly — twice on the homepage. */
+@utility stagger {
+  & > * {
+    animation: var(--animate-rise);
+  }
+  & > *:nth-child(2) {
+    animation-delay: 90ms;
+  }
+  & > *:nth-child(3) {
+    animation-delay: 180ms;
+  }
+  & > *:nth-child(4) {
+    animation-delay: 270ms;
+  }
+  & > *:nth-child(5) {
+    animation-delay: 360ms;
+  }
 }

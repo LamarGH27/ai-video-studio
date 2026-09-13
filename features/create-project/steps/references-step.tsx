@@ -2,7 +2,7 @@
 
 import { useRef, useState } from 'react';
 import Link from 'next/link';
-import { Check, ImageUp, Trash2, X } from 'lucide-react';
+import { ArrowRight, Check, ImageUp, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Alert } from '@/components/ui/alert';
 import { Spinner } from '@/components/ui/spinner';
@@ -66,15 +66,17 @@ export function ReferencesStep({
 
   if (requiresAuth) {
     return (
-      <section aria-labelledby="auth-gate-heading" className="space-y-8">
-        <header className="space-y-3">
-          <p className="eyebrow">Step 3</p>
-          <h2 id="auth-gate-heading" className="display-heading text-3xl sm:text-4xl">
+      <section aria-labelledby="auth-gate-heading" className="space-y-10">
+        <header className="max-w-2xl space-y-4">
+          <p className="eyebrow">Step 3 — Your photos</p>
+          <h2 id="auth-gate-heading" className="display-heading text-display-md">
             Create an account to continue.
           </h2>
-          <p className="max-w-xl leading-relaxed text-bone-400">
-            Reference images are private to you, so we need an account to store them against. Your
-            brief has been kept — you will come straight back here.
+          <p className="lede">
+            Your photographs are private, so they need an owner. Creating an account takes a moment.
+          </p>
+          <p className="text-brass-300">
+            Your brief has been kept — you will come straight back to this page.
           </p>
         </header>
 
@@ -97,39 +99,45 @@ export function ReferencesStep({
   }
 
   return (
-    <section aria-labelledby="references-heading" className="space-y-8">
-      <header className="space-y-3">
-        <p className="eyebrow">Step 3</p>
-        <h2 id="references-heading" className="display-heading text-3xl sm:text-4xl">
-          Upload your reference images.
+    <section aria-labelledby="references-heading" className="space-y-10">
+      <header className="max-w-2xl space-y-4">
+        <p className="eyebrow">Step 3 — Your photos</p>
+        <h2 id="references-heading" className="display-heading text-display-md">
+          Now show us who we are filming.
         </h2>
-        <p className="max-w-xl leading-relaxed text-bone-400">
-          Between {MIN_REFERENCE_IMAGES_PER_PROJECT} and {MAX_REFERENCE_IMAGES_PER_PROJECT} images,
-          JPEG, PNG or WebP, up to {limitMb} MB each. They are stored privately and are never
-          published.
+        {/* Why, before what. People send us their camera roll when nobody has
+            explained that a few good frames beat forty poor ones. */}
+        <p className="lede">
+          These photographs are what your face, your build and your presence are built from. A few
+          clear ones do more than a hundred casual ones — this is the single biggest thing you
+          control about how the final film looks.
+        </p>
+        <p className="text-sm leading-relaxed text-bone-500">
+          {MIN_REFERENCE_IMAGES_PER_PROJECT} to {MAX_REFERENCE_IMAGES_PER_PROJECT} images · JPEG,
+          PNG or WebP · up to {limitMb} MB each · private to you, never published
         </p>
       </header>
 
-      <div className="grid gap-6 sm:grid-cols-2">
-        <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/[0.03] p-5">
-          <h3 className="text-sm font-medium text-emerald-200">What works</h3>
-          <ul className="text-bone-300 mt-3 space-y-2 text-sm">
+      <div className="grid gap-x-12 gap-y-8 pt-8 rule-top sm:grid-cols-2">
+        <div>
+          <h3 className="display-heading text-lg">What works</h3>
+          <ul className="mt-4 space-y-2.5">
             {GOOD_GUIDANCE.map((item) => (
-              <li key={item} className="flex gap-2.5">
-                <Check className="mt-0.5 size-4 shrink-0 text-emerald-300" aria-hidden="true" />
-                <span className="leading-relaxed">{item}</span>
+              <li key={item} className="flex gap-3 text-sm leading-relaxed text-bone-300">
+                <Check className="mt-0.5 size-4 shrink-0 text-brass-300" aria-hidden="true" />
+                <span>{item}</span>
               </li>
             ))}
           </ul>
         </div>
 
-        <div className="rounded-xl border border-rose-400/20 bg-rose-400/[0.03] p-5">
-          <h3 className="text-sm font-medium text-rose-200">What to avoid</h3>
-          <ul className="text-bone-300 mt-3 space-y-2 text-sm">
+        <div>
+          <h3 className="display-heading text-lg">What to avoid</h3>
+          <ul className="mt-4 space-y-2.5">
             {AVOID_GUIDANCE.map((item) => (
-              <li key={item} className="flex gap-2.5">
-                <X className="mt-0.5 size-4 shrink-0 text-rose-300" aria-hidden="true" />
-                <span className="leading-relaxed">{item}</span>
+              <li key={item} className="flex gap-3 text-sm leading-relaxed text-bone-500">
+                <X className="mt-0.5 size-4 shrink-0 text-bone-500" aria-hidden="true" />
+                <span>{item}</span>
               </li>
             ))}
           </ul>
@@ -159,17 +167,36 @@ export function ReferencesStep({
           if (event.dataTransfer.files.length > 0) onFilesSelected(event.dataTransfer.files);
         }}
         className={cn(
-          'rounded-panel border border-dashed p-10 text-center transition-colors',
-          isDragging ? 'border-brass-400/70 bg-brass-400/[0.05]' : 'border-white/15',
-          atLimit && 'opacity-60',
+          'rounded-panel border border-dashed px-6 py-14 text-center transition-all duration-300',
+          isDragging
+            ? 'scale-[1.01] border-brass-400/70 bg-brass-400/[0.06]'
+            : 'border-white/15 hover:border-white/30 hover:bg-white/[0.02]',
+          atLimit && 'opacity-55',
         )}
       >
-        <ImageUp className="mx-auto size-7 text-bone-400/60" aria-hidden="true" />
+        <span
+          aria-hidden="true"
+          className={cn(
+            'mx-auto flex size-14 items-center justify-center rounded-full border transition-colors',
+            isDragging
+              ? 'border-brass-400/60 bg-brass-400/10 text-brass-300'
+              : 'border-white/12 text-bone-500',
+          )}
+        >
+          <ImageUp className="size-6" />
+        </span>
 
-        <p className="text-bone-300 mt-4 text-sm">
+        <p className="mt-6 display-heading text-xl">
+          {atLimit
+            ? 'That is the full set.'
+            : isDragging
+              ? 'Drop them here.'
+              : 'Drag your photos here'}
+        </p>
+        <p className="mt-2 text-sm text-bone-500">
           {atLimit
             ? `You have reached the limit of ${MAX_REFERENCE_IMAGES_PER_PROJECT} images.`
-            : 'Drag images here, or choose them from your device.'}
+            : 'or choose them from your device'}
         </p>
 
         <input
@@ -192,7 +219,8 @@ export function ReferencesStep({
         <Button
           type="button"
           variant="outline"
-          className="mt-5"
+          size="lg"
+          className="mt-7"
           disabled={atLimit || uploading}
           onClick={() => inputRef.current?.click()}
         >
@@ -200,8 +228,29 @@ export function ReferencesStep({
           {uploading ? 'Uploading…' : 'Choose images'}
         </Button>
 
-        <p className="mt-4 text-xs text-bone-400/70" aria-live="polite">
-          {assets.length} of {MAX_REFERENCE_IMAGES_PER_PROJECT} uploaded
+        {/* A meter against the MINIMUM, not the maximum: what a person needs to
+            know here is how many more are required before they can continue. */}
+        <div className="mt-7 flex items-center justify-center gap-2" aria-hidden="true">
+          {Array.from({ length: MIN_REFERENCE_IMAGES_PER_PROJECT }, (_, index) => (
+            <span
+              key={index}
+              className={cn(
+                'h-1 w-7 rounded-full transition-colors duration-500',
+                index < assets.length ? 'bg-brass-400' : 'bg-white/12',
+              )}
+            />
+          ))}
+          {assets.length > MIN_REFERENCE_IMAGES_PER_PROJECT ? (
+            <span className="ml-1 text-xs text-brass-300">
+              +{assets.length - MIN_REFERENCE_IMAGES_PER_PROJECT}
+            </span>
+          ) : null}
+        </div>
+
+        <p className="mt-3 text-xs text-bone-500" aria-live="polite">
+          {assets.length < MIN_REFERENCE_IMAGES_PER_PROJECT
+            ? `${MIN_REFERENCE_IMAGES_PER_PROJECT - assets.length} more to go — ${assets.length} of ${MAX_REFERENCE_IMAGES_PER_PROJECT} uploaded`
+            : `${assets.length} of ${MAX_REFERENCE_IMAGES_PER_PROJECT} uploaded`}
         </p>
       </div>
 
@@ -210,7 +259,7 @@ export function ReferencesStep({
         <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
           {assets.map((asset) => (
             <li key={asset.assetId} className="group relative">
-              <div className="aspect-square overflow-hidden rounded-xl border border-white/10 bg-white/[0.03]">
+              <div className="media-frame aspect-square">
                 {asset.previewUrl ? (
                   // Signed, short-lived URLs from a private bucket. next/image is
                   // deliberately not used: it would proxy and cache private media.
@@ -230,7 +279,7 @@ export function ReferencesStep({
               <button
                 type="button"
                 onClick={() => onRemove(asset.assetId)}
-                className="absolute top-2 right-2 inline-flex size-8 items-center justify-center rounded-full bg-ink-950/85 text-bone-200 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100"
+                className="absolute top-2 right-2 inline-flex size-9 items-center justify-center rounded-full border border-white/15 bg-ink-990/90 text-bone-200 opacity-0 backdrop-blur transition-all group-focus-within:opacity-100 group-hover:opacity-100 hover:border-rose-400/50 hover:text-rose-200 focus-visible:opacity-100"
               >
                 <Trash2 className="size-4" aria-hidden="true" />
                 <span className="sr-only">Remove {asset.originalFilename}</span>
@@ -245,17 +294,19 @@ export function ReferencesStep({
         </ul>
       ) : null}
 
-      <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">
+      <div className="flex flex-col-reverse gap-3 pt-8 rule-top sm:flex-row sm:items-center sm:justify-between">
         <Button type="button" variant="ghost" onClick={onBack}>
           Back
         </Button>
         <Button
           type="button"
           variant="accent"
+          size="lg"
           onClick={onContinue}
           disabled={assets.length < MIN_REFERENCE_IMAGES_PER_PROJECT || uploading}
         >
           Continue to review
+          <ArrowRight aria-hidden="true" />
         </Button>
       </div>
     </section>

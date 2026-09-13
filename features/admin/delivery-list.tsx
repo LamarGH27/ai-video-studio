@@ -19,7 +19,7 @@ export function AdminDeliveryList({
 }) {
   return (
     <section aria-label={title}>
-      <h3 className="text-sm font-medium tracking-wide text-bone-400 uppercase">{title}</h3>
+      <h3 className="eyebrow">{title}</h3>
 
       {assets.length === 0 ? (
         <p className="mt-3 text-sm text-bone-400">{emptyMessage}</p>
@@ -28,7 +28,7 @@ export function AdminDeliveryList({
           {assets.map((asset, index) => (
             <li key={asset.id}>
               <div className="flex flex-wrap items-baseline justify-between gap-3">
-                <p className="text-bone-100 text-sm">
+                <p className="display-heading text-lg">
                   {asset.assetType === 'FINAL_VIDEO' ? 'Final' : 'Preview'} {asset.version}
                   {index === 0 ? (
                     <span className="ml-2 text-xs text-brass-300">current</span>

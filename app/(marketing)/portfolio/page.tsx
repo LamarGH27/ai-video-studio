@@ -17,7 +17,7 @@ export const revalidate = 300;
 
 export const metadata: Metadata = {
   title: 'Portfolio',
-  description: 'Selected cinematic AI-generated video commissions by AI Video Studio.',
+  description: 'Selected cinematic work. Every piece began as photographs and a written brief.',
 };
 
 /**
@@ -39,20 +39,23 @@ export default async function PortfolioPage({
 
   return (
     <>
-      <section className="border-b border-white/8 surface-glow">
-        <Container className="py-20 sm:py-28">
-          <p className="eyebrow">Portfolio</p>
-          <h1 className="mt-6 max-w-3xl display-heading text-[clamp(2.25rem,6vw,4rem)]">
-            Work made for people who were not on set.
-          </h1>
-          <p className="mt-6 max-w-xl text-base leading-relaxed text-bone-400">
+      <section className="grain relative overflow-hidden surface-glow">
+        <div className="grain-layer" aria-hidden="true" />
+        <Container className="relative grid gap-8 py-20 sm:py-28 lg:grid-cols-12 lg:items-end">
+          <div className="lg:col-span-8">
+            <p className="eyebrow">Portfolio</p>
+            <h1 className="mt-6 display-heading text-display-lg text-balance">
+              Work made for people who were never on set.
+            </h1>
+          </div>
+          <p className="leading-relaxed text-bone-400 lg:col-span-4 lg:col-start-9">
             Every piece below started as a set of photographs and a written brief. Pick one you like
             and we will build your version of it.
           </p>
         </Container>
       </section>
 
-      <section className="py-16 sm:py-20">
+      <section className="py-16 rule-top sm:py-20">
         <Container>
           <nav aria-label="Filter portfolio by category">
             <ul className="flex flex-wrap gap-2">
@@ -61,9 +64,9 @@ export default async function PortfolioPage({
                   href="/portfolio"
                   aria-current={activeCategory === null ? 'true' : undefined}
                   className={cn(
-                    'inline-flex h-9 items-center rounded-full border px-4 text-sm transition-colors',
+                    'inline-flex h-10 items-center rounded-full border px-5 text-sm transition-colors',
                     activeCategory === null
-                      ? 'text-brass-200 border-brass-400/60 bg-brass-400/10'
+                      ? 'border-brass-400/60 bg-brass-400/10 text-brass-200'
                       : 'border-white/12 text-bone-400 hover:border-white/30 hover:text-bone-50',
                   )}
                 >
@@ -76,9 +79,9 @@ export default async function PortfolioPage({
                     href={`/portfolio?category=${value}`}
                     aria-current={activeCategory === value ? 'true' : undefined}
                     className={cn(
-                      'inline-flex h-9 items-center rounded-full border px-4 text-sm transition-colors',
+                      'inline-flex h-10 items-center rounded-full border px-5 text-sm transition-colors',
                       activeCategory === value
-                        ? 'text-brass-200 border-brass-400/60 bg-brass-400/10'
+                        ? 'border-brass-400/60 bg-brass-400/10 text-brass-200'
                         : 'border-white/12 text-bone-400 hover:border-white/30 hover:text-bone-50',
                     )}
                   >
@@ -101,30 +104,51 @@ export default async function PortfolioPage({
               }
             />
           ) : (
-            <ul className="mt-14 grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
-              {visible.map((entry) => (
-                <li key={entry.id} className="group flex flex-col">
-                  <div className="aspect-[4/5] overflow-hidden rounded-panel border border-white/10">
+            <ul className="mt-14 grid gap-x-6 gap-y-14 sm:grid-cols-2 lg:grid-cols-3">
+              {visible.map((entry, index) => (
+                <li
+                  key={entry.id}
+                  className={cn(
+                    'group flex reveal flex-col',
+                    // Every third piece drops half a frame on desktop. A grid
+                    // whose rows all start at the same y-position reads as a
+                    // table of records; a staggered one reads as a contact sheet.
+                    index % 3 === 1 && 'lg:mt-16',
+                  )}
+                >
+                  <div className="media-frame aspect-[4/5]">
                     <PortfolioFrame
                       seed={entry.slug}
                       title={entry.title}
                       category={entry.category}
-                      className="transition-transform duration-700 group-hover:scale-[1.03]"
+                      showLabel={false}
+                      scrim={false}
+                      className="transition-transform duration-[1.4s] ease-cinema group-hover:scale-[1.06]"
                     />
+
+                    {/* Revealed on hover and on keyboard focus within the card,
+                        so it is not a pointer-only affordance. */}
+                    <div className="absolute inset-0 flex items-end bg-ink-990/45 opacity-0 transition-opacity duration-500 group-focus-within:opacity-100 group-hover:opacity-100 motion-reduce:transition-none">
+                      <p className="p-6 font-mono text-[0.6rem] tracking-[0.3em] text-bone-50/80 uppercase">
+                        {categoryLabel(entry.category)}
+                      </p>
+                    </div>
                   </div>
 
-                  <div className="mt-5 flex flex-1 flex-col">
-                    <p className="text-[0.65rem] tracking-[0.2em] text-brass-300/70 uppercase">
+                  <div className="mt-6 flex flex-1 flex-col">
+                    <p className="text-[0.65rem] tracking-[0.2em] text-brass-300/75 uppercase">
                       {categoryLabel(entry.category)}
                     </p>
-                    <h2 className="mt-2 display-heading text-xl">{entry.title}</h2>
+                    <h2 className="mt-2.5 display-heading text-2xl transition-colors group-hover:text-brass-200">
+                      {entry.title}
+                    </h2>
                     {entry.description ? (
-                      <p className="mt-2 flex-1 text-sm leading-relaxed text-bone-400">
+                      <p className="mt-3 flex-1 leading-relaxed text-bone-400">
                         {entry.description}
                       </p>
                     ) : null}
 
-                    <Button asChild variant="link" className="mt-4 self-start">
+                    <Button asChild variant="link" className="mt-5 self-start">
                       {/* Pre-selects the matching experience in the create flow. */}
                       <Link
                         href={

@@ -28,7 +28,7 @@ export default async function AdminPage() {
     <Container className="py-14 sm:py-20">
       <header>
         <p className="eyebrow">Admin</p>
-        <h1 className="mt-5 display-heading text-[clamp(2rem,5vw,3rem)]">Production queue</h1>
+        <h1 className="mt-6 display-heading text-display-lg">Production queue</h1>
         <p className="mt-4 max-w-lg leading-relaxed text-bone-400">
           Every submitted brief, newest first. Drafts are not shown — they are not finished.
         </p>
@@ -85,7 +85,7 @@ export default async function AdminPage() {
                   <td className="py-4 pr-4 font-mono text-xs tracking-wider text-bone-200">
                     {project.public_reference}
                   </td>
-                  <td className="text-bone-300 py-4 pr-4">
+                  <td className="py-4 pr-4 text-bone-300">
                     {project.profiles?.display_name ?? '—'}
                   </td>
                   <td className="text-bone-100 py-4 pr-4">
@@ -95,7 +95,7 @@ export default async function AdminPage() {
                     <StatusBadge status={project.status} />
                   </td>
                   <td className="py-4 pr-4 text-bone-400">{formatDate(project.submitted_at)}</td>
-                  <td className="text-bone-300 py-4 pr-4">
+                  <td className="py-4 pr-4 text-bone-300">
                     {nextAdminAction(project.status)?.label ?? '—'}
                   </td>
                   <td className="py-4">

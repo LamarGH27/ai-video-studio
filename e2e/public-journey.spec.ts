@@ -12,11 +12,11 @@ test('the homepage loads with its hero, message and both calls to action', async
   await expect(page.getByRole('heading', { level: 1 })).toContainText('Your photos.');
   await expect(page.getByRole('heading', { level: 1 })).toContainText('Your movie.');
   await expect(
-    page.getByText('Turn existing photographs into bespoke cinematic AI-generated video'),
+    page.getByText('Upload your photos, describe the experience you want to live'),
   ).toBeVisible();
 
   await expect(page.getByRole('link', { name: 'Create My Video' }).first()).toBeVisible();
-  await expect(page.getByRole('link', { name: 'View Portfolio' })).toBeVisible();
+  await expect(page.getByRole('link', { name: /See What.s Possible/ })).toBeVisible();
 });
 
 test('a visitor can reach Create My Video from the homepage', async ({ page }) => {
@@ -25,6 +25,7 @@ test('a visitor can reach Create My Video from the homepage', async ({ page }) =
 
   await expect(page).toHaveURL(/\/create$/);
   await expect(page.getByRole('heading', { name: /Let’s build your film\./ })).toBeVisible();
+  // The nav CTA and the hero CTA share a name; .first() is the hero.
   // Step 1 is public: choosing an experience needs no account.
   await expect(
     page.getByRole('heading', { name: /What kind of film are we making\?/ }),
@@ -78,3 +79,20 @@ test('the homepage works at phone width without sideways scrolling', async ({ pa
   await page.getByRole('button', { name: 'Open menu' }).click();
   await expect(page.getByRole('navigation', { name: 'Main' }).last()).toBeVisible();
 });
+
+/**
+ * The redesign leans on large display type and full-bleed media, both of which
+ * are ways to introduce horizontal overflow. Every public page is checked at the
+ * narrowest width we support rather than only the homepage.
+ */
+for (const [name, path] of [
+  ['the portfolio', '/portfolio'],
+  ['how it works', '/how-it-works'],
+  ['the create flow', '/create'],
+] as const) {
+  test(`${name} has no sideways scrolling at 375px`, async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto(path);
+    await expectNoHorizontalScroll(page);
+  });
+}

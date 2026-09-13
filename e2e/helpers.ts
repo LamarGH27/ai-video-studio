@@ -99,7 +99,7 @@ export async function createAndSubmitProject(
   await page.goto('/create');
 
   await page.getByText('Luxury Lifestyle', { exact: true }).first().click();
-  await page.getByRole('button', { name: /Continue to your brief/ }).click();
+  await page.getByRole('button', { name: /Continue to your vision/ }).click();
 
   await page.getByLabel('Your brief').fill(brief);
   await page.getByLabel('Mood').fill('Confident');

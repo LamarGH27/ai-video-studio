@@ -22,7 +22,7 @@ async function fillBriefUpToAuthGate(page: Page) {
   await page.goto('/create');
 
   await page.getByText('Luxury Lifestyle', { exact: true }).first().click();
-  await page.getByRole('button', { name: /Continue to your brief/ }).click();
+  await page.getByRole('button', { name: /Continue to your vision/ }).click();
 
   await page.getByLabel('Your brief').fill(BRIEF);
   await page.getByLabel('Mood').fill('Confident and warm');
@@ -113,7 +113,7 @@ test('a visitor can go back and change the experience without losing the brief',
     page.getByRole('heading', { name: /What kind of film are we making\?/ }),
   ).toBeVisible();
   await page.getByText('Fashion', { exact: true }).first().click();
-  await page.getByRole('button', { name: /Continue to your brief/ }).click();
+  await page.getByRole('button', { name: /Continue to your vision/ }).click();
 
   await expect(page.getByLabel('Your brief')).toHaveValue(BRIEF);
 });

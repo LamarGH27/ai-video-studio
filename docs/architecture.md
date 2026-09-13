@@ -614,6 +614,20 @@ customer decision on the same project serialise rather than overlap.
 
 ---
 
+## 11b. Presentation
+
+The visual system is documented separately in
+[`design-system.md`](design-system.md): tokens, type, rhythm, media treatment,
+motion and the accessibility rules. It is presentation only — no page in this
+application decides anything about workflow, access or notification behaviour
+from a style token, and Milestone 2C changed no migration, policy, action or
+queue.
+
+The product name is read from `lib/brand/index.ts` rather than written into
+components, so renaming it later touches one file.
+
+---
+
 ## 12. Decisions taken where the brief left room
 
 | Decision                                  | Choice                                           | Why                                                                                                                                                                                                                                                                                                                                                   |
