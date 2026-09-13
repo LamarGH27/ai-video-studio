@@ -114,10 +114,13 @@ describe('portfolio credibility', () => {
     expect(items.map((item) => item.slug)).toEqual([
       'midnight-yacht',
       'garden-wedding',
+      'atelier-day',
+      'executive-presence',
+      'island-arrival',
       'monaco-summer',
     ]);
     expect(items[0]?.film?.videoUrl).toBe('/showcase/midnight-yacht.mp4');
-    expect(items[2]?.film).toBeNull();
+    expect(items[5]?.film).toBeNull();
     // Still a concept gallery, media and all.
     expect(isConceptOnlyGallery(items)).toBe(true);
   });
@@ -199,7 +202,10 @@ describe('experience naming', () => {
   it('renames the stored value for display without changing it', () => {
     // EXECUTIVE is written into an applied migration and into rows; only its
     // label moves.
-    expect(categoryLabel('EXECUTIVE')).toBe('Executive Presence');
+    // The category is the kind of work; the experience is what somebody buys.
+    // Both renamed without the stored value moving.
+    expect(categoryLabel('EXECUTIVE')).toBe('Personal Brand');
+    expect(categoryLabel('TRAVEL')).toBe('Travel & Adventure');
     expect(experienceDisplayName('executive', 'Executive')).toBe('Executive Presence');
   });
 

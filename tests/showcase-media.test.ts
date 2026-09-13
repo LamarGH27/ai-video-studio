@@ -2,6 +2,11 @@ import { statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { FLAGSHIP_FILM, SHOWCASE_FILMS, galleryItems } from '@/lib/catalog/showcase';
+import {
+  isConceptOnlyGallery,
+  portfolioProvenance,
+  provenanceLabel,
+} from '@/lib/catalog/presentation';
 import { prose, readSource as read } from './support/source';
 
 const ROOT = process.cwd();
@@ -9,10 +14,54 @@ const ROOT = process.cwd();
 const PLAYER = 'features/media/cinematic-video.tsx';
 
 /**
- * Two films, about 2 MB each, served from /public. Small enough to live in the
- * repository; not small enough to send to somebody who did not ask for them.
+ * Five films, under 2.5 MB each, served from /public. Small enough to live in
+ * the repository; not small enough to send to somebody who did not ask for them.
  */
 describe('showcase media', () => {
+  it('has all five films, in the order the gallery leads with', () => {
+    expect(SHOWCASE_FILMS.map((film) => film.slug)).toEqual([
+      'midnight-yacht',
+      'garden-wedding',
+      'atelier-day',
+      'executive-presence',
+      'island-arrival',
+    ]);
+  });
+
+  /**
+   * Range is the argument the gallery is making: five films that all look like
+   * the same shoot prove less than two that do not.
+   */
+  it('covers five different categories', () => {
+    const categories = SHOWCASE_FILMS.map((film) => film.category);
+    expect(new Set(categories).size).toBe(SHOWCASE_FILMS.length);
+    expect(categories).toEqual([
+      'LUXURY_LIFESTYLE',
+      'CELEBRATION',
+      'FASHION',
+      'EXECUTIVE',
+      'TRAVEL',
+    ]);
+  });
+
+  it('says every film is a concept, and calls none of them a commission', () => {
+    for (const film of SHOWCASE_FILMS) {
+      expect(film.provenance, film.slug).toBe('CONCEPT');
+      expect(provenanceLabel(portfolioProvenance(film)), film.slug).toBe('Concept');
+      const copy = `${film.shortCopy} ${film.longCopy}`;
+      expect(copy, film.slug).not.toMatch(/commission|client work|case study|customer film/i);
+    }
+  });
+
+  /**
+   * One anchor. "Every other film is wide" is a pattern a visitor notices and
+   * stops reading; one hero and four equals is a composition.
+   */
+  it('anchors the grid on exactly one film, and it is the flagship', () => {
+    const anchors = SHOWCASE_FILMS.filter((film) => film.emphasis === 'anchor');
+    expect(anchors.map((film) => film.slug)).toEqual(['midnight-yacht']);
+  });
+
   it('ships every file the registry points at', () => {
     for (const film of SHOWCASE_FILMS) {
       for (const url of [film.videoUrl, film.posterUrl]) {
@@ -38,10 +87,29 @@ describe('showcase media', () => {
    * this asserts we never ship.
    */
   it('gives every film a poster, so no frame is ever black', () => {
+    expect(SHOWCASE_FILMS).toHaveLength(5);
     for (const film of SHOWCASE_FILMS) {
       expect(film.posterUrl, film.slug).toMatch(/\.(webp|jpg|jpeg|png)$/);
+      // Named after the film, so a mismatched pair is visible in a diff.
+      expect(film.posterUrl, film.slug).toContain(film.slug);
+      expect(film.videoUrl, film.slug).toContain(film.slug);
     }
     expect(read(PLAYER)).toMatch(/poster=\{posterUrl\}/);
+  });
+
+  /**
+   * The documented threshold for moving off static assets is a dozen films or
+   * 50 MB. This fails well before either becomes a surprise.
+   */
+  it('keeps the whole library inside the static-hosting threshold', () => {
+    const total = SHOWCASE_FILMS.reduce(
+      (sum, film) =>
+        sum +
+        statSync(join(ROOT, 'public', film.videoUrl)).size +
+        statSync(join(ROOT, 'public', film.posterUrl)).size,
+      0,
+    );
+    expect(total).toBeLessThan(50_000_000);
   });
 });
 
@@ -136,13 +204,46 @@ describe('the flagship', () => {
 });
 
 describe('the gallery', () => {
-  it('opens with the two films we can actually play', () => {
+  it('opens with the five films we can actually play', () => {
     const items = galleryItems([]);
-    expect(items.slice(0, 2).map((item) => item.title)).toEqual([
+    expect(items.slice(0, 5).map((item) => item.title)).toEqual([
       'Midnight Yacht',
       'Garden Wedding',
+      'Atelier Day',
+      'Executive Presence',
+      'Island Arrival',
     ]);
-    expect(items.every((item) => item.film !== null || item.provenance === null)).toBe(true);
+  });
+
+  /**
+   * A placeholder must never outrank a film. The page renders the two in
+   * separate grids for that reason; this asserts the ordering the split
+   * depends on.
+   */
+  it('puts every real film ahead of every placeholder', () => {
+    const items = galleryItems([
+      {
+        id: 'db-1',
+        slug: 'archive-no-4',
+        title: 'Archive No. 4',
+        description: null,
+        category: 'BESPOKE',
+        experienceSlug: 'custom-concept',
+      },
+    ]);
+
+    const filmIndexes = items.flatMap((item, index) => (item.film ? [index] : []));
+    const lastFilm = Math.max(...filmIndexes);
+    const firstPlaceholder = items.findIndex((item) => item.film === null);
+    expect(lastFilm).toBeLessThan(firstPlaceholder);
+    expect(isConceptOnlyGallery(items), 'real media must not imply a commission').toBe(true);
+  });
+
+  it('renders films and placeholders as separate grids, films first', () => {
+    const page = read('app/(marketing)/portfolio/page.tsx');
+    expect(page).toMatch(/const films = visible\.filter/);
+    expect(page).toMatch(/const concepts = visible\.filter/);
+    expect(page.indexOf('{films.map(')).toBeLessThan(page.indexOf('{concepts.map('));
   });
 
   it('carries each film into the create flow through its experience', () => {

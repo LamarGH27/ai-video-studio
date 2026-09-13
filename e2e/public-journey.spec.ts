@@ -170,15 +170,54 @@ test('no film is downloaded, and none plays, until somebody asks', async ({ page
   }
 });
 
-test('the gallery leads with the two films, both marked as concepts', async ({ page }) => {
+test('the gallery leads with all five films, before any placeholder', async ({ page }) => {
   await page.goto('/portfolio');
 
   const headings = await page.locator('h2').allTextContents();
-  expect(headings.slice(0, 2)).toEqual(['Midnight Yacht', 'Garden Wedding']);
+  expect(headings.slice(0, 5)).toEqual([
+    'Midnight Yacht',
+    'Garden Wedding',
+    'Atelier Day',
+    'Executive Presence',
+    'Island Arrival',
+  ]);
+
+  // Five players, and every one of them is a film we hold.
+  await expect(page.locator('video')).toHaveCount(5);
 
   // Every piece on the page carries the mark; none is presented as a commission.
   const marks = await page.getByText('Concept', { exact: true }).count();
-  expect(marks).toBeGreaterThanOrEqual(2);
+  expect(marks).toBeGreaterThanOrEqual(5);
+  const body = (await page.locator('body').textContent()) ?? '';
+  for (const word of ['Commission', 'Client work', 'Case study']) {
+    expect(body, `the gallery says "${word}"`).not.toContain(word);
+  }
+});
+
+/**
+ * The homepage carries five film stills and exactly one player. Posters are
+ * images; only the transformation result is a <video>, and only it may autoplay.
+ */
+test('the homepage shows the range without shipping five players', async ({ page }) => {
+  await page.goto('/');
+
+  await expect(page.locator('video')).toHaveCount(1);
+
+  const posters = await page
+    .locator('img[src^="/showcase/"]')
+    .evaluateAll((images) =>
+      images.map((image) => (image as HTMLImageElement).getAttribute('src')),
+    );
+
+  expect(new Set(posters)).toEqual(
+    new Set([
+      '/showcase/midnight-yacht-poster.webp',
+      '/showcase/garden-wedding-poster.webp',
+      '/showcase/atelier-day-poster.webp',
+      '/showcase/executive-presence-poster.webp',
+      '/showcase/island-arrival-poster.webp',
+    ]),
+  );
 });
 
 test('the flagship film is muted before it is ever asked to play', async ({ page }) => {

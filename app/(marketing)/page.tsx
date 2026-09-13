@@ -85,7 +85,10 @@ export default async function HomePage() {
 
   // Films we can play first, then the concepts we can only describe.
   const gallery = galleryItems(entries);
-  const [lead, ...rest] = gallery.slice(0, 5);
+  const lead = gallery[0];
+  // The hero already carries the lead film's still, so the strip shows the
+  // four that are not already on this page above it.
+  const strip = gallery.slice(1, 5);
 
   return (
     <>
@@ -339,8 +342,12 @@ export default async function HomePage() {
             }
           />
 
-          <ul className="mt-16 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-            {rest.slice(0, 4).map((entry) => (
+          {/* Two columns, not four. These are 16:9 films: a quarter-width
+              widescreen card is a letterbox slot, and cropping one to portrait
+              to fill a tall tile cuts the subject out of its own still. Two
+              columns shows four films at a size worth looking at. */}
+          <ul className="mt-16 grid gap-x-6 gap-y-10 sm:grid-cols-2">
+            {strip.map((entry) => (
               <li key={entry.id} className="group reveal">
                 <Link
                   href={{ pathname: '/portfolio', query: { category: entry.category } }}
@@ -354,11 +361,11 @@ export default async function HomePage() {
                       posterUrl={entry.film.posterUrl}
                       title={entry.film.title}
                       provenance={entry.film.provenance}
-                      aspect="portrait"
+                      aspect={entry.film.aspect}
                       imageClassName="transition-transform duration-[1.4s] ease-cinema group-hover:scale-[1.06]"
                     />
                   ) : (
-                    <div className="media-frame aspect-[3/4]">
+                    <div className="media-frame aspect-video">
                       <PortfolioFrame
                         seed={entry.slug}
                         title={entry.title}

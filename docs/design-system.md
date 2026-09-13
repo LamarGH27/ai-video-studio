@@ -123,11 +123,20 @@ not rows: migrations 000000-000700 are deployed and immutable, and a film is not
 a schema change. Adding one is media in `public/showcase` plus an entry — nothing
 to migrate, nothing that can drift from the files on disk.
 
-Files live under `/public` and are served as static assets. Two ten-second films
-at about 2 MB each is the right size for that: no signed URLs to expire, no
-bucket to configure, and no request to Supabase from a statically rendered
-marketing page. Past roughly a dozen films — or 50 MB — this moves to object
-storage behind a CDN, and only `videoUrl`/`posterUrl` change.
+Files live under `/public` and are served as static assets. Five ten-second films
+at under 2.5 MB each — about 11 MB in total — is still the right size for that:
+no signed URLs to expire, no bucket to configure, and no request to Supabase from
+a statically rendered marketing page. Nothing downloads until somebody presses
+play, so the page costs five posters rather than five films. Past roughly a dozen
+films — or 50 MB — this moves to object storage behind a CDN, and only
+`videoUrl`/`posterUrl` change. A test fails before either limit is a surprise.
+
+`emphasis` declares how much room a piece takes in the gallery, per film rather
+than by position: "every other film is wide" is a pattern a visitor notices and
+then stops reading. One anchor and four equals is a composition. The gallery
+renders films and unfilmed directions as two grids — one hero at full width then
+pairs, then the placeholders in a smaller three-column contact sheet — so a
+placeholder can never outrank real work.
 
 **Provenance is stated, never inferred.** It used to be derived from whether a
 piece had media, which held right up until we had real concept films: both of
@@ -219,8 +228,10 @@ its clean result was believed.
 The design is complete; the **content** is not. What would raise it most, in
 order:
 
-1. **More films.** Two exist (Midnight Yacht, Garden Wedding); six gallery pieces
-   are still `PortfolioFrame` placeholders. Each one added is one fewer.
+1. **More films.** Five exist — Midnight Yacht, Garden Wedding, Atelier Day,
+   Executive Presence, Island Arrival — across five categories. Eight gallery
+   pieces are still `PortfolioFrame` placeholders; Cinematic, Social Media and
+   Bespoke have no film at all. Each one added is one fewer.
 2. **A reference photograph** for the transformation sequence — a real picture
    somebody is happy to publish, to sit where the "Your photo" placeholder is.
    It is the only half of that before/after still missing, and it would do more

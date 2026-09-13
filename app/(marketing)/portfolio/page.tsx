@@ -7,7 +7,7 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { PortfolioFrame } from '@/features/portfolio/frame';
 import { CinematicVideo } from '@/features/media/cinematic-video';
 import { listPortfolioEntries } from '@/lib/data/portfolio';
-import { galleryItems } from '@/lib/catalog/showcase';
+import { galleryItems, type GalleryItem } from '@/lib/catalog/showcase';
 import {
   EXPERIENCE_CATEGORIES,
   categoryLabel,
@@ -46,6 +46,10 @@ export default async function PortfolioPage({
   const visible = activeCategory
     ? entries.filter((entry) => entry.category === activeCategory)
     : entries;
+
+  // Real work first, always. A placeholder must never outrank a film.
+  const films = visible.filter((entry) => entry.film !== null);
+  const concepts = visible.filter((entry) => entry.film === null);
 
   // Everything here is work we made to show a direction, not a delivered
   // commission. Saying so is not a disclaimer — it is the difference between a
@@ -125,34 +129,27 @@ export default async function PortfolioPage({
                 </Button>
               }
             />
-          ) : (
-            <ul className="mt-14 grid gap-x-6 gap-y-14 sm:grid-cols-2 lg:grid-flow-dense lg:grid-cols-3">
-              {/* Dense placement matters here: a two-column film leaves a hole
-                  in a three-column row, and a hole beside the only real work in
-                  the gallery reads as a broken tile. Dense fills it with the
-                  next piece that fits, without changing DOM or tab order. */}
-              {visible.map((entry, index) => (
+          ) : null}
+
+          {/* The films, on their own grid.
+              Five widescreen pieces in a three-column grid would each be
+              shorter than the paragraph underneath them, and a row of three
+              identical bands is the point at which a visitor stops looking. Two
+              columns gives every film room, and the anchor takes the full width
+              above them: one hero, then pairs. */}
+          {films.length > 0 ? (
+            <ul className="mt-14 grid gap-x-6 gap-y-14 lg:grid-cols-2">
+              {films.map((entry) => (
                 <li
                   key={entry.id}
                   className={cn(
                     'group flex reveal flex-col',
-                    // A film we can play is widescreen, and a widescreen frame
-                    // one column wide would be the smallest tile in a gallery
-                    // led by the only real work in it. Two columns puts it at
-                    // roughly the height of the 4:5 tile beside it, so the row
-                    // still lines up.
-                    entry.film
-                      ? 'lg:col-span-2'
-                      : // Every third placeholder drops half a frame on
-                        // desktop. A grid whose rows all start at the same
-                        // y-position reads as a table of records; a staggered
-                        // one reads as a contact sheet.
-                        index % 3 === 2 && 'lg:mt-16',
+                    entry.film?.emphasis === 'anchor' && 'lg:col-span-2',
                   )}
                 >
                   {entry.film ? (
-                    // A real film: its own player, its own shape, nothing
-                    // playing until somebody presses play.
+                    // A real film: its own player, nothing playing until
+                    // somebody presses play.
                     <CinematicVideo
                       videoUrl={entry.film.videoUrl}
                       posterUrl={entry.film.posterUrl}
@@ -162,7 +159,38 @@ export default async function PortfolioPage({
                       provenance={entry.film.provenance}
                       aspect={entry.film.aspect}
                     />
-                  ) : (
+                  ) : null}
+
+                  <GalleryCaption entry={entry} headingClassName="text-2xl" />
+                </li>
+              ))}
+            </ul>
+          ) : null}
+
+          {concepts.length > 0 ? (
+            <>
+              {films.length > 0 ? (
+                <p className="mt-24 eyebrow">Directions we have not filmed yet</p>
+              ) : null}
+
+              <ul
+                className={cn(
+                  'grid gap-x-6 gap-y-14 sm:grid-cols-2 lg:grid-cols-3',
+                  films.length > 0 ? 'mt-10' : 'mt-14',
+                )}
+              >
+                {concepts.map((entry, index) => (
+                  <li
+                    key={entry.id}
+                    className={cn(
+                      'group flex reveal flex-col',
+                      // Every third piece drops half a frame on desktop. A grid
+                      // whose rows all start at the same y-position reads as a
+                      // table of records; a staggered one reads as a contact
+                      // sheet.
+                      index % 3 === 1 && 'lg:mt-16',
+                    )}
+                  >
                     <div className="media-frame aspect-[4/5]">
                       <PortfolioFrame
                         seed={entry.slug}
@@ -187,41 +215,56 @@ export default async function PortfolioPage({
                         </p>
                       </div>
                     </div>
-                  )}
 
-                  <div className="mt-6 flex flex-1 flex-col">
-                    <p className="text-[0.65rem] tracking-[0.2em] text-brass-300/75 uppercase">
-                      {categoryLabel(entry.category)}
-                    </p>
-                    <h2 className="mt-2.5 display-heading text-2xl transition-colors group-hover:text-brass-200">
-                      {entry.title}
-                    </h2>
-                    {entry.description ? (
-                      <p className="mt-3 flex-1 leading-relaxed text-bone-400">
-                        {entry.description}
-                      </p>
-                    ) : null}
-
-                    <Button asChild variant="link" className="mt-5 self-start">
-                      {/* Pre-selects the matching experience in the create flow. */}
-                      <Link
-                        href={
-                          entry.experienceSlug
-                            ? `/create?experience=${entry.experienceSlug}`
-                            : '/create'
-                        }
-                      >
-                        Create Your Version
-                        <ArrowRight aria-hidden="true" />
-                      </Link>
-                    </Button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
+                    <GalleryCaption entry={entry} headingClassName="text-xl" />
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : null}
         </Container>
       </section>
     </>
+  );
+}
+
+/**
+ * The words under a piece. Identical for a film and for a direction we have not
+ * filmed, so the two grids read as one gallery rather than two lists.
+ */
+function GalleryCaption({
+  entry,
+  headingClassName,
+}: {
+  entry: GalleryItem;
+  headingClassName: string;
+}) {
+  return (
+    <div className="mt-6 flex flex-1 flex-col">
+      <p className="text-[0.65rem] tracking-[0.2em] text-brass-300/75 uppercase">
+        {categoryLabel(entry.category)}
+      </p>
+      <h2
+        className={cn(
+          'mt-2.5 display-heading transition-colors group-hover:text-brass-200',
+          headingClassName,
+        )}
+      >
+        {entry.title}
+      </h2>
+      {entry.description ? (
+        <p className="mt-3 flex-1 leading-relaxed text-bone-400">{entry.description}</p>
+      ) : null}
+
+      <Button asChild variant="link" className="mt-5 self-start">
+        {/* Pre-selects the matching experience in the create flow. */}
+        <Link
+          href={entry.experienceSlug ? `/create?experience=${entry.experienceSlug}` : '/create'}
+        >
+          Create Your Version
+          <ArrowRight aria-hidden="true" />
+        </Link>
+      </Button>
+    </div>
   );
 }
