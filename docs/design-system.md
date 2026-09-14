@@ -123,20 +123,36 @@ not rows: migrations 000000-000700 are deployed and immutable, and a film is not
 a schema change. Adding one is media in `public/showcase` plus an entry — nothing
 to migrate, nothing that can drift from the files on disk.
 
-Files live under `/public` and are served as static assets. Five ten-second films
-at under 2.5 MB each — about 11 MB in total — is still the right size for that:
-no signed URLs to expire, no bucket to configure, and no request to Supabase from
-a statically rendered marketing page. Nothing downloads until somebody presses
-play, so the page costs five posters rather than five films. Past roughly a dozen
-films — or 50 MB — this moves to object storage behind a CDN, and only
-`videoUrl`/`posterUrl` change. A test fails before either limit is a surprise.
+Files live under `/public` and are served as static assets. Seven ten-second
+films at under 2.5 MB each — 13.1 MB in total, 27% of the threshold — is still
+the right size for that: no signed URLs to expire, no bucket to configure, and no
+request to Supabase from a statically rendered marketing page. Nothing downloads
+until somebody presses play, so the gallery costs seven posters (0.31 MB) rather
+than seven films. Past roughly a dozen films — or 50 MB — this moves to object
+storage behind a CDN, and only `videoUrl`/`posterUrl` change. Tests fail before
+either limit is a surprise, and an E2E spec asserts that opening `/portfolio`
+fetches no `.mp4` at all.
 
 `emphasis` declares how much room a piece takes in the gallery, per film rather
 than by position: "every other film is wide" is a pattern a visitor notices and
-then stops reading. One anchor and four equals is a composition. The gallery
-renders films and unfilmed directions as two grids — one hero at full width then
-pairs, then the placeholders in a smaller three-column contact sheet — so a
-placeholder can never outrank real work.
+then stops reading. One anchor and the rest in pairs is a composition. The
+gallery renders films and unfilmed directions as two grids — the anchor at full
+width, then pairs, then the placeholders in a smaller three-column contact sheet
+— so a placeholder can never outrank real work. The pair grid needs an even
+number of standard films or the last one is stranded beside a gap; a test
+enforces that rather than leaving it to a screenshot.
+
+Registry order is editorial, not chronological. Each pair contrasts inside
+itself — daylight beside night, warm interior beside open water — because
+ordering by arrival date would put both dark night films at the bottom and turn
+the end of the gallery into a slump.
+
+`HOMEPAGE_STRIP` is a declared list of four films, not a slice of the gallery.
+The homepage argues that the service covers what somebody might want a film
+_for_, so the rule is one film per customer motivation — celebration, wardrobe,
+professional presence, journey. Mood pieces and a second film in the flagship's
+own category earn their place in the gallery, where range is the point, and lose
+a homepage slot to a motivation that is not otherwise represented.
 
 **Provenance is stated, never inferred.** It used to be derived from whether a
 piece had media, which held right up until we had real concept films: both of
@@ -228,16 +244,21 @@ its clean result was believed.
 The design is complete; the **content** is not. What would raise it most, in
 order:
 
-1. **More films.** Five exist — Midnight Yacht, Garden Wedding, Atelier Day,
-   Executive Presence, Island Arrival — across five categories. Eight gallery
-   pieces are still `PortfolioFrame` placeholders; Cinematic, Social Media and
-   Bespoke have no film at all. Each one added is one fewer.
-2. **A reference photograph** for the transformation sequence — a real picture
+1. **A reference photograph** for the transformation sequence — a real picture
    somebody is happy to publish, to sit where the "Your photo" placeholder is.
-   It is the only half of that before/after still missing, and it would do more
-   than any copy on the page. A stock face there would fake the exact thing the
-   section demonstrates, so it stays a placeholder until a real one exists.
-3. **A logo mark**, if the wordmark is ever not enough.
-4. **An OG/social image** — the product will mostly be met through a shared link.
-5. **Genuine testimonials.** None are invented here and none should be; the trust
+   It is the missing half of the only before/after proof on the site, and the
+   whole proposition is a transformation nobody can currently see the start of.
+   A stock face there would fake the exact thing the section demonstrates, so it
+   stays a placeholder until a real one exists.
+2. **Films with a different subject in them.** All seven feature the same man.
+   The library is strong on range of _occasion_ and weak on range of _person_,
+   which quietly narrows who can picture themselves buying this. Two or three
+   pieces led by different people would do more than another occasion.
+3. **An OG/social image**, 1200x630 — the product will mostly be met through a
+   shared link, and there is nothing behind one today.
+4. **More occasions**, after the above. Seven films cover six categories; only
+   Social Media and Bespoke have none, and eight gallery pieces are still
+   `PortfolioFrame` placeholders.
+5. **A logo mark**, if the wordmark is ever not enough.
+6. **Genuine testimonials.** None are invented here and none should be; the trust
    section is structured so real ones drop in beside it when they exist.

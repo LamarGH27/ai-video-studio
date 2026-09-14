@@ -112,15 +112,11 @@ describe('portfolio credibility', () => {
     ]);
 
     expect(items.map((item) => item.slug)).toEqual([
-      'midnight-yacht',
-      'garden-wedding',
-      'atelier-day',
-      'executive-presence',
-      'island-arrival',
+      ...SHOWCASE_FILMS.map((film) => film.slug),
       'monaco-summer',
     ]);
     expect(items[0]?.film?.videoUrl).toBe('/showcase/midnight-yacht.mp4');
-    expect(items[5]?.film).toBeNull();
+    expect(items.at(-1)?.film).toBeNull();
     // Still a concept gallery, media and all.
     expect(isConceptOnlyGallery(items)).toBe(true);
   });

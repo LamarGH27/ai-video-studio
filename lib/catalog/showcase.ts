@@ -56,6 +56,16 @@ export interface ShowcaseFilm {
   emphasis: 'anchor' | 'standard';
 }
 
+/**
+ * Ordered for the page, not by date added.
+ *
+ * The flagship anchors at full width; the other six read as three pairs, and
+ * each pair is built to contrast inside itself — daylight beside night, warm
+ * interior beside open water. Ordering these by when they arrived would have
+ * put the two dark night films together at the bottom, which turns the end of
+ * the gallery into a slump. Ordering them alphabetically would be an accident
+ * pretending to be a decision.
+ */
 export const SHOWCASE_FILMS: readonly ShowcaseFilm[] = [
   {
     slug: 'midnight-yacht',
@@ -89,6 +99,21 @@ export const SHOWCASE_FILMS: readonly ShowcaseFilm[] = [
     emphasis: 'standard',
   },
   {
+    slug: 'after-hours',
+    title: 'After Hours',
+    category: 'CINEMATIC',
+    experienceSlug: 'cinematic',
+    provenance: 'CONCEPT',
+    shortCopy: 'A night in the city transformed into something that feels straight out of film.',
+    longCopy:
+      'A sophisticated urban-night concept built around confidence, atmosphere and cinematic city energy, turning an evening in the city into something closer to the opening sequence of a premium film.',
+    videoUrl: '/showcase/after-hours.mp4',
+    posterUrl: '/showcase/after-hours-poster.webp',
+    aspect: 'video',
+    featured: true,
+    emphasis: 'standard',
+  },
+  {
     slug: 'atelier-day',
     title: 'Atelier Day',
     category: 'FASHION',
@@ -99,6 +124,21 @@ export const SHOWCASE_FILMS: readonly ShowcaseFilm[] = [
       'A fashion-led luxury shopping concept built around refined personal style, confident movement and an editorial cinematic finish.',
     videoUrl: '/showcase/atelier-day.mp4',
     posterUrl: '/showcase/atelier-day-poster.webp',
+    aspect: 'video',
+    featured: true,
+    emphasis: 'standard',
+  },
+  {
+    slug: 'island-arrival',
+    title: 'Island Arrival',
+    category: 'TRAVEL',
+    experienceSlug: 'travel',
+    provenance: 'CONCEPT',
+    shortCopy: 'From an everyday photograph to somewhere extraordinary.',
+    longCopy:
+      'A tropical travel concept built around escape, freedom and premium destination storytelling, turning an ordinary reference image into an aspirational cinematic journey.',
+    videoUrl: '/showcase/island-arrival.mp4',
+    posterUrl: '/showcase/island-arrival-poster.webp',
     aspect: 'video',
     featured: true,
     emphasis: 'standard',
@@ -121,16 +161,19 @@ export const SHOWCASE_FILMS: readonly ShowcaseFilm[] = [
     emphasis: 'standard',
   },
   {
-    slug: 'island-arrival',
-    title: 'Island Arrival',
-    category: 'TRAVEL',
-    experienceSlug: 'travel',
+    slug: 'the-suite',
+    title: 'The Suite',
+    // Shares Luxury Lifestyle with the flagship on purpose. One category
+    // holding a firework-lit deck and a quiet hotel window says more about the
+    // range of the service than inventing a seventh category would.
+    category: 'LUXURY_LIFESTYLE',
+    experienceSlug: 'luxury-lifestyle',
     provenance: 'CONCEPT',
-    shortCopy: 'From an everyday photograph to somewhere extraordinary.',
+    shortCopy: 'Quiet luxury, city lights and a moment that feels entirely your own.',
     longCopy:
-      'A tropical travel concept built around escape, freedom and premium destination storytelling, turning an ordinary reference image into an aspirational cinematic journey.',
-    videoUrl: '/showcase/island-arrival.mp4',
-    posterUrl: '/showcase/island-arrival-poster.webp',
+      'A refined hotel-suite concept centred on calm confidence, warm interiors and city views, showing that cinematic personal storytelling does not need spectacle to feel premium.',
+    videoUrl: '/showcase/the-suite.mp4',
+    posterUrl: '/showcase/the-suite-poster.webp',
     aspect: 'video',
     featured: true,
     emphasis: 'standard',
@@ -143,6 +186,32 @@ export function showcaseFilm(slug: string): ShowcaseFilm | undefined {
 
 /** The piece the homepage leads with. */
 export const FLAGSHIP_FILM = SHOWCASE_FILMS[0] as ShowcaseFilm;
+
+/**
+ * The four films in the homepage strip, chosen rather than sliced.
+ *
+ * The homepage is arguing that the service covers what somebody might want a
+ * film FOR, so these are four different reasons to buy one — a celebration, a
+ * wardrobe, a professional presence, a journey — not the four most recent
+ * pieces. The rule is one film per customer motivation.
+ *
+ * Two deliberate omissions. After Hours is the strongest of the new pair, but
+ * "it can look like a film" is the question the flagship directly above it
+ * already answers; spending a slot on mood would cost a slot on a motivation.
+ * The Suite is quiet Luxury Lifestyle, which the flagship also occupies. Both
+ * earn their place in the gallery, where range is the point; the homepage is
+ * making a narrower argument.
+ */
+export const HOMEPAGE_STRIP: readonly ShowcaseFilm[] = [
+  'garden-wedding',
+  'atelier-day',
+  'executive-presence',
+  'island-arrival',
+].map((slug) => {
+  const film = SHOWCASE_FILMS.find((candidate) => candidate.slug === slug);
+  if (!film) throw new Error(`Homepage strip names a film that does not exist: ${slug}`);
+  return film;
+});
 
 /**
  * One list for the gallery: the films we can play, then the concepts we can

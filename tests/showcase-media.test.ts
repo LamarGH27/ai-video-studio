@@ -1,7 +1,13 @@
 import { statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { FLAGSHIP_FILM, SHOWCASE_FILMS, galleryItems } from '@/lib/catalog/showcase';
+import {
+  FLAGSHIP_FILM,
+  HOMEPAGE_STRIP,
+  SHOWCASE_FILMS,
+  galleryItems,
+} from '@/lib/catalog/showcase';
+import { EXPERIENCE_CATEGORIES, categoryLabel } from '@/lib/catalog/categories';
 import {
   isConceptOnlyGallery,
   portfolioProvenance,
@@ -18,30 +24,53 @@ const PLAYER = 'features/media/cinematic-video.tsx';
  * the repository; not small enough to send to somebody who did not ask for them.
  */
 describe('showcase media', () => {
-  it('has all five films, in the order the gallery leads with', () => {
+  it('has all seven films, in the order the gallery leads with', () => {
     expect(SHOWCASE_FILMS.map((film) => film.slug)).toEqual([
       'midnight-yacht',
       'garden-wedding',
+      'after-hours',
       'atelier-day',
-      'executive-presence',
       'island-arrival',
+      'executive-presence',
+      'the-suite',
     ]);
+  });
+
+  /**
+   * The anchor takes a full row and the rest read as pairs, so an odd number of
+   * standard films would leave the last one stranded beside a gap. Seven works
+   * (1 + 3 pairs); nine would; eight would not, and this is where that gets
+   * caught rather than in a screenshot.
+   */
+  it('leaves no film stranded in the pair grid', () => {
+    const standard = SHOWCASE_FILMS.filter((film) => film.emphasis === 'standard');
+    expect(standard.length % 2, 'a lone film would sit beside an empty column').toBe(0);
   });
 
   /**
    * Range is the argument the gallery is making: five films that all look like
    * the same shoot prove less than two that do not.
    */
-  it('covers five different categories', () => {
+  it('covers six categories across seven films', () => {
     const categories = SHOWCASE_FILMS.map((film) => film.category);
-    expect(new Set(categories).size).toBe(SHOWCASE_FILMS.length);
-    expect(categories).toEqual([
-      'LUXURY_LIFESTYLE',
-      'CELEBRATION',
-      'FASHION',
-      'EXECUTIVE',
-      'TRAVEL',
-    ]);
+    expect(new Set(categories)).toEqual(
+      new Set(['LUXURY_LIFESTYLE', 'CELEBRATION', 'CINEMATIC', 'FASHION', 'TRAVEL', 'EXECUTIVE']),
+    );
+    // Every category a film claims must be one the filter nav can show.
+    for (const category of categories) {
+      expect(EXPERIENCE_CATEGORIES, `${category} is not a filterable category`).toContain(category);
+      expect(categoryLabel(category), `${category} has no label`).toBeTruthy();
+    }
+  });
+
+  /**
+   * Two films in one category is the point, not an accident: a firework-lit
+   * deck and a quiet hotel window under the same heading say more about the
+   * range of the service than a seventh category invented to keep them apart.
+   */
+  it('lets one category hold more than one film', () => {
+    const luxury = SHOWCASE_FILMS.filter((film) => film.category === 'LUXURY_LIFESTYLE');
+    expect(luxury.map((film) => film.slug)).toEqual(['midnight-yacht', 'the-suite']);
   });
 
   it('says every film is a concept, and calls none of them a commission', () => {
@@ -87,7 +116,7 @@ describe('showcase media', () => {
    * this asserts we never ship.
    */
   it('gives every film a poster, so no frame is ever black', () => {
-    expect(SHOWCASE_FILMS).toHaveLength(5);
+    expect(SHOWCASE_FILMS).toHaveLength(7);
     for (const film of SHOWCASE_FILMS) {
       expect(film.posterUrl, film.slug).toMatch(/\.(webp|jpg|jpeg|png)$/);
       // Named after the film, so a mismatched pair is visible in a diff.
@@ -173,6 +202,36 @@ describe('playback restraint', () => {
   });
 });
 
+/**
+ * The homepage argues that the service covers what somebody might want a film
+ * FOR. Four slots, four different reasons — not the four most recent pieces.
+ */
+describe('the homepage strip', () => {
+  it('shows four films, each a different reason to buy one', () => {
+    expect(HOMEPAGE_STRIP).toHaveLength(4);
+    const categories = HOMEPAGE_STRIP.map((film) => film.category);
+    expect(new Set(categories).size, 'two slots spent on one motivation').toBe(4);
+  });
+
+  it('does not spend a slot on the film already at the top of the page', () => {
+    expect(HOMEPAGE_STRIP.map((film) => film.slug)).not.toContain(FLAGSHIP_FILM.slug);
+    // Nor on the other film in the flagship's category.
+    expect(HOMEPAGE_STRIP.every((film) => film.category !== FLAGSHIP_FILM.category)).toBe(true);
+  });
+
+  it('is a declared list, not a slice of the gallery', () => {
+    const page = read('app/(marketing)/page.tsx');
+    expect(page).toMatch(/const strip = HOMEPAGE_STRIP;/);
+    expect(prose('app/(marketing)/page.tsx')).not.toMatch(/gallery\.slice/);
+  });
+
+  it('only names films that exist', () => {
+    for (const film of HOMEPAGE_STRIP) {
+      expect(SHOWCASE_FILMS, film.slug).toContain(film);
+    }
+  });
+});
+
 describe('the flagship', () => {
   it('is Midnight Yacht, and is a concept', () => {
     expect(FLAGSHIP_FILM.slug).toBe('midnight-yacht');
@@ -204,14 +263,16 @@ describe('the flagship', () => {
 });
 
 describe('the gallery', () => {
-  it('opens with the five films we can actually play', () => {
+  it('opens with the seven films we can actually play', () => {
     const items = galleryItems([]);
-    expect(items.slice(0, 5).map((item) => item.title)).toEqual([
+    expect(items.slice(0, 7).map((item) => item.title)).toEqual([
       'Midnight Yacht',
       'Garden Wedding',
+      'After Hours',
       'Atelier Day',
-      'Executive Presence',
       'Island Arrival',
+      'Executive Presence',
+      'The Suite',
     ]);
   });
 

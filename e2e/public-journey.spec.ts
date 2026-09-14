@@ -170,24 +170,26 @@ test('no film is downloaded, and none plays, until somebody asks', async ({ page
   }
 });
 
-test('the gallery leads with all five films, before any placeholder', async ({ page }) => {
+test('the gallery leads with all seven films, before any placeholder', async ({ page }) => {
   await page.goto('/portfolio');
 
   const headings = await page.locator('h2').allTextContents();
-  expect(headings.slice(0, 5)).toEqual([
+  expect(headings.slice(0, 7)).toEqual([
     'Midnight Yacht',
     'Garden Wedding',
+    'After Hours',
     'Atelier Day',
-    'Executive Presence',
     'Island Arrival',
+    'Executive Presence',
+    'The Suite',
   ]);
 
-  // Five players, and every one of them is a film we hold.
-  await expect(page.locator('video')).toHaveCount(5);
+  // Seven players, and every one of them is a film we hold.
+  await expect(page.locator('video')).toHaveCount(7);
 
   // Every piece on the page carries the mark; none is presented as a commission.
   const marks = await page.getByText('Concept', { exact: true }).count();
-  expect(marks).toBeGreaterThanOrEqual(5);
+  expect(marks).toBeGreaterThanOrEqual(7);
   const body = (await page.locator('body').textContent()) ?? '';
   for (const word of ['Commission', 'Client work', 'Case study']) {
     expect(body, `the gallery says "${word}"`).not.toContain(word);
@@ -198,7 +200,7 @@ test('the gallery leads with all five films, before any placeholder', async ({ p
  * The homepage carries five film stills and exactly one player. Posters are
  * images; only the transformation result is a <video>, and only it may autoplay.
  */
-test('the homepage shows the range without shipping five players', async ({ page }) => {
+test('the homepage shows the range with one player, not seven', async ({ page }) => {
   await page.goto('/');
 
   await expect(page.locator('video')).toHaveCount(1);
@@ -209,6 +211,8 @@ test('the homepage shows the range without shipping five players', async ({ page
       images.map((image) => (image as HTMLImageElement).getAttribute('src')),
     );
 
+  // The flagship still, plus the four strip films. After Hours and The Suite
+  // are gallery pieces: the homepage argues range, not completeness.
   expect(new Set(posters)).toEqual(
     new Set([
       '/showcase/midnight-yacht-poster.webp',
@@ -218,6 +222,26 @@ test('the homepage shows the range without shipping five players', async ({ page
       '/showcase/island-arrival-poster.webp',
     ]),
   );
+});
+
+/**
+ * Seven films on one page is where "poster-first" stops being a nicety. The
+ * gallery must still cost seven posters, not seven films.
+ */
+test('opening the gallery downloads posters, not films', async ({ page }) => {
+  const requested: string[] = [];
+  page.on('request', (request) => {
+    const url = new URL(request.url());
+    if (url.pathname.startsWith('/showcase/')) requested.push(url.pathname);
+  });
+
+  await page.goto('/portfolio', { waitUntil: 'networkidle' });
+
+  expect(
+    requested.filter((path) => path.endsWith('.mp4')),
+    'a film was fetched',
+  ).toEqual([]);
+  expect(requested.filter((path) => path.endsWith('.webp')).length).toBeGreaterThan(0);
 });
 
 test('the flagship film is muted before it is ever asked to play', async ({ page }) => {

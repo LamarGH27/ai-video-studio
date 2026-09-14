@@ -10,10 +10,9 @@ import { Transformation } from '@/features/marketing/transformation';
 import { listPortfolioEntries } from '@/lib/data/portfolio';
 import { listActiveExperiences } from '@/lib/data/experiences';
 import { categoryLabel } from '@/lib/catalog/categories';
-import { portfolioProvenance, provenanceLabel } from '@/lib/catalog/presentation';
 import { brand } from '@/lib/brand';
 import { JOURNEY_BRIEF_STEPS, JOURNEY_PRODUCTION_STAGES } from '@/lib/journey';
-import { FLAGSHIP_FILM, galleryItems } from '@/lib/catalog/showcase';
+import { FLAGSHIP_FILM, HOMEPAGE_STRIP, galleryItems } from '@/lib/catalog/showcase';
 import { experienceDisplayDescription, experienceDisplayName } from '@/lib/catalog/presentation';
 
 // Marketing content changes rarely and must not require a live session to render.
@@ -86,9 +85,10 @@ export default async function HomePage() {
   // Films we can play first, then the concepts we can only describe.
   const gallery = galleryItems(entries);
   const lead = gallery[0];
-  // The hero already carries the lead film's still, so the strip shows the
-  // four that are not already on this page above it.
-  const strip = gallery.slice(1, 5);
+  // Chosen in lib/catalog/showcase.ts, not sliced off the front of the gallery:
+  // the strip is four reasons somebody buys a film, one each, and that is not
+  // the same list as the four most recently added.
+  const strip = HOMEPAGE_STRIP;
 
   return (
     <>
@@ -347,44 +347,28 @@ export default async function HomePage() {
               to fill a tall tile cuts the subject out of its own still. Two
               columns shows four films at a size worth looking at. */}
           <ul className="mt-16 grid gap-x-6 gap-y-10 sm:grid-cols-2">
-            {strip.map((entry) => (
-              <li key={entry.id} className="group reveal">
+            {strip.map((film) => (
+              <li key={film.slug} className="group reveal">
                 <Link
-                  href={{ pathname: '/portfolio', query: { category: entry.category } }}
+                  href={{ pathname: '/portfolio', query: { category: film.category } }}
                   className="block focus-visible:outline-offset-4"
                 >
-                  {entry.film ? (
-                    // A still, not a player: this card is itself a link, and a
-                    // player nested inside one is both invalid and a confusing
-                    // target. The film plays in the gallery it leads to.
-                    <CinematicStill
-                      posterUrl={entry.film.posterUrl}
-                      title={entry.film.title}
-                      provenance={entry.film.provenance}
-                      aspect={entry.film.aspect}
-                      imageClassName="transition-transform duration-[1.4s] ease-cinema group-hover:scale-[1.06]"
-                    />
-                  ) : (
-                    <div className="media-frame aspect-video">
-                      <PortfolioFrame
-                        seed={entry.slug}
-                        title={entry.title}
-                        category={entry.category}
-                        showLabel={false}
-                        className="transition-transform duration-[1.4s] ease-cinema group-hover:scale-[1.06]"
-                      />
-                      {provenanceLabel(portfolioProvenance(entry)) ? (
-                        <p className="absolute top-3.5 left-3.5 rounded-full border border-bone-50/20 bg-ink-990/55 px-2.5 py-0.5 text-[0.55rem] tracking-[0.2em] text-bone-200 uppercase backdrop-blur-sm">
-                          {provenanceLabel(portfolioProvenance(entry))}
-                        </p>
-                      ) : null}
-                    </div>
-                  )}
+                  {/* A still, not a player: this card is itself a link, and a
+                      player nested inside one is both invalid markup and a
+                      confusing target. The film plays in the gallery it leads
+                      to. */}
+                  <CinematicStill
+                    posterUrl={film.posterUrl}
+                    title={film.title}
+                    provenance={film.provenance}
+                    aspect={film.aspect}
+                    imageClassName="transition-transform duration-[1.4s] ease-cinema group-hover:scale-[1.06]"
+                  />
                   <p className="mt-5 text-[0.65rem] tracking-[0.22em] text-brass-300/75 uppercase">
-                    {categoryLabel(entry.category)}
+                    {categoryLabel(film.category)}
                   </p>
                   <h3 className="mt-2 display-heading text-lg transition-colors group-hover:text-brass-200">
-                    {entry.title}
+                    {film.title}
                   </h3>
                 </Link>
               </li>
