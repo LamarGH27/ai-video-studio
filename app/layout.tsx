@@ -16,10 +16,25 @@ export const metadata: Metadata = {
   },
   description: brand.proposition,
   applicationName: brand.name,
+  /**
+   * Self-canonical, resolved against metadataBase.
+   *
+   * `'./'` is per-route: /portfolio canonicalises to <origin>/portfolio. That
+   * matters most for the hosts we do NOT advertise — a production deployment
+   * keeps its *.vercel.app alias, and that alias is reachable and indexable. A
+   * crawler that finds it now reads a canonical pointing at the real domain
+   * instead of competing with it.
+   *
+   * A preview deployment canonicalises to ITSELF, which is correct: it is not
+   * production and must not claim to be. The origin comes from siteUrl(), so
+   * which host that is stays a deployment decision, not a source-code one.
+   */
+  alternates: { canonical: './' },
   openGraph: {
     title: `${brand.name} — ${brand.tagline}`,
     description: brand.proposition,
     siteName: brand.name,
+    url: './',
     type: 'website',
   },
   // No card image yet, so a summary card rather than a large one that would
