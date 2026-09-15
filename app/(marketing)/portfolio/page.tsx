@@ -132,11 +132,11 @@ export default async function PortfolioPage({
           ) : null}
 
           {/* The films, on their own grid.
-              Five widescreen pieces in a three-column grid would each be
-              shorter than the paragraph underneath them, and a row of three
-              identical bands is the point at which a visitor stops looking. Two
-              columns gives every film room, and the anchor takes the full width
-              above them: one hero, then pairs. */}
+              Widescreen pieces in a three-column grid would each be shorter
+              than the paragraph underneath them, and a row of three identical
+              bands is the point at which a visitor stops looking. Two columns
+              gives every film room; the anchor opens at full width and the
+              closer ends the same way, with pairs between them. */}
           {films.length > 0 ? (
             <ul className="mt-14 grid gap-x-6 gap-y-14 lg:grid-cols-2">
               {films.map((entry) => (
@@ -144,7 +144,7 @@ export default async function PortfolioPage({
                   key={entry.id}
                   className={cn(
                     'group flex reveal flex-col',
-                    entry.film?.emphasis === 'anchor' && 'lg:col-span-2',
+                    entry.film?.emphasis !== 'standard' && 'lg:col-span-2',
                   )}
                 >
                   {entry.film ? (

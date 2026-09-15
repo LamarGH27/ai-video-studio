@@ -24,34 +24,54 @@ const PLAYER = 'features/media/cinematic-video.tsx';
  * the repository; not small enough to send to somebody who did not ask for them.
  */
 describe('showcase media', () => {
-  it('has all seven films, in the order the gallery leads with', () => {
+  it('has all eight films, in the order the gallery leads with', () => {
     expect(SHOWCASE_FILMS.map((film) => film.slug)).toEqual([
       'midnight-yacht',
-      'garden-wedding',
+      'golden-hour',
       'after-hours',
       'atelier-day',
       'island-arrival',
+      'garden-wedding',
       'executive-presence',
       'the-suite',
     ]);
   });
 
   /**
-   * The anchor takes a full row and the rest read as pairs, so an odd number of
-   * standard films would leave the last one stranded beside a gap. Seven works
-   * (1 + 3 pairs); nine would; eight would not, and this is where that gets
-   * caught rather than in a screenshot.
+   * The wide slots are bookends: the anchor opens the gallery, the closer ends
+   * it, and everything between reads as pairs. An odd number of standard films
+   * would strand the last one beside a gap — which is exactly what the eighth
+   * film would have done to the old one-anchor-and-pairs grid. This is where
+   * that gets caught, rather than in a screenshot.
    */
+  it('opens and closes on a full-width film, with pairs between', () => {
+    const wide = SHOWCASE_FILMS.filter((film) => film.emphasis !== 'standard');
+    expect(wide.map((film) => film.emphasis)).toEqual(['anchor', 'closer']);
+    // And they are the first and last pieces, not wide slots in the middle.
+    expect(SHOWCASE_FILMS.at(0)?.emphasis).toBe('anchor');
+    expect(SHOWCASE_FILMS.at(-1)?.emphasis).toBe('closer');
+  });
+
   it('leaves no film stranded in the pair grid', () => {
     const standard = SHOWCASE_FILMS.filter((film) => film.emphasis === 'standard');
     expect(standard.length % 2, 'a lone film would sit beside an empty column').toBe(0);
   });
 
   /**
+   * Golden Hour exists because seven films led by the same man read as one
+   * person's showreel. Putting it eighth would have wasted it: a visitor
+   * decides whether a service is for them from the first few things they see.
+   */
+  it('puts the film that widens the gallery near the top of it', () => {
+    const position = SHOWCASE_FILMS.findIndex((film) => film.slug === 'golden-hour');
+    expect(position, 'Golden Hour must be the first film after the anchor').toBe(1);
+  });
+
+  /**
    * Range is the argument the gallery is making: five films that all look like
    * the same shoot prove less than two that do not.
    */
-  it('covers six categories across seven films', () => {
+  it('covers six categories across eight films', () => {
     const categories = SHOWCASE_FILMS.map((film) => film.category);
     expect(new Set(categories)).toEqual(
       new Set(['LUXURY_LIFESTYLE', 'CELEBRATION', 'CINEMATIC', 'FASHION', 'TRAVEL', 'EXECUTIVE']),
@@ -71,6 +91,8 @@ describe('showcase media', () => {
   it('lets one category hold more than one film', () => {
     const luxury = SHOWCASE_FILMS.filter((film) => film.category === 'LUXURY_LIFESTYLE');
     expect(luxury.map((film) => film.slug)).toEqual(['midnight-yacht', 'the-suite']);
+    const celebration = SHOWCASE_FILMS.filter((film) => film.category === 'CELEBRATION');
+    expect(celebration.map((film) => film.slug)).toEqual(['golden-hour', 'garden-wedding']);
   });
 
   it('says every film is a concept, and calls none of them a commission', () => {
@@ -116,7 +138,7 @@ describe('showcase media', () => {
    * this asserts we never ship.
    */
   it('gives every film a poster, so no frame is ever black', () => {
-    expect(SHOWCASE_FILMS).toHaveLength(7);
+    expect(SHOWCASE_FILMS).toHaveLength(8);
     for (const film of SHOWCASE_FILMS) {
       expect(film.posterUrl, film.slug).toMatch(/\.(webp|jpg|jpeg|png)$/);
       // Named after the film, so a mismatched pair is visible in a diff.
@@ -213,6 +235,16 @@ describe('the homepage strip', () => {
     expect(new Set(categories).size, 'two slots spent on one motivation').toBe(4);
   });
 
+  /**
+   * Four cards showing one person read as one person's showreel, whatever the
+   * copy underneath says. Golden Hour took the celebration slot from Garden
+   * Wedding — same category, so no motivation was lost for it.
+   */
+  it('does not present the whole service through a single subject', () => {
+    expect(HOMEPAGE_STRIP.map((film) => film.slug)).toContain('golden-hour');
+    expect(HOMEPAGE_STRIP.map((film) => film.slug)).not.toContain('garden-wedding');
+  });
+
   it('does not spend a slot on the film already at the top of the page', () => {
     expect(HOMEPAGE_STRIP.map((film) => film.slug)).not.toContain(FLAGSHIP_FILM.slug);
     // Nor on the other film in the flagship's category.
@@ -263,14 +295,15 @@ describe('the flagship', () => {
 });
 
 describe('the gallery', () => {
-  it('opens with the seven films we can actually play', () => {
+  it('opens with the eight films we can actually play', () => {
     const items = galleryItems([]);
-    expect(items.slice(0, 7).map((item) => item.title)).toEqual([
+    expect(items.slice(0, 8).map((item) => item.title)).toEqual([
       'Midnight Yacht',
-      'Garden Wedding',
+      'Golden Hour',
       'After Hours',
       'Atelier Day',
       'Island Arrival',
+      'Garden Wedding',
       'Executive Presence',
       'The Suite',
     ]);
@@ -298,6 +331,11 @@ describe('the gallery', () => {
     const firstPlaceholder = items.findIndex((item) => item.film === null);
     expect(lastFilm).toBeLessThan(firstPlaceholder);
     expect(isConceptOnlyGallery(items), 'real media must not imply a commission').toBe(true);
+  });
+
+  it('gives the wide slots their full row, and only them', () => {
+    const page = read('app/(marketing)/portfolio/page.tsx');
+    expect(page).toMatch(/entry\.film\?\.emphasis !== 'standard' && 'lg:col-span-2'/);
   });
 
   it('renders films and placeholders as separate grids, films first', () => {
