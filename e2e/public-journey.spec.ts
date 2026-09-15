@@ -342,3 +342,51 @@ test.describe('reduced motion', () => {
     expect(state.poster, 'a still, never a blank frame').toMatch(/midnight-yacht-poster\.webp$/);
   });
 });
+
+/**
+ * The brand, as actually rendered.
+ *
+ * The unit tests assert the config and that no component hard-codes a name;
+ * this asserts the name reaches the page — including the one place a unit test
+ * cannot see, which is the <title> Next composes from the template.
+ */
+test.describe('the public brand', () => {
+  const OLD_NAME = ['AI', 'Video', 'Studio'].join(' ');
+
+  test('names the product on every public surface', async ({ page }) => {
+    await page.goto('/');
+
+    await expect(page).toHaveTitle(/^Scenelio — Your photos\. Your vision\. Your movie\.$/);
+    await expect(page.getByRole('banner').getByRole('link', { name: /Scenelio/ })).toBeVisible();
+    await expect(page.getByRole('contentinfo')).toContainText('Scenelio');
+    await expect(page.getByRole('contentinfo')).toContainText('©');
+
+    const description = page.locator('meta[name="description"]');
+    await expect(description).toHaveAttribute('content', /cinematic/i);
+    await expect(page.locator('meta[property="og:site_name"]')).toHaveAttribute(
+      'content',
+      'Scenelio',
+    );
+  });
+
+  test('uses the brand in per-page titles without saying it twice', async ({ page }) => {
+    for (const [path, title] of [
+      ['/portfolio', 'Concept Gallery · Scenelio'],
+      ['/how-it-works', 'How It Works · Scenelio'],
+      ['/login', 'Sign in · Scenelio'],
+    ] as const) {
+      await page.goto(path);
+      await expect(page).toHaveTitle(title);
+    }
+  });
+
+  test('says nothing about the old working name', async ({ page }) => {
+    for (const path of ['/', '/portfolio', '/how-it-works', '/pricing', '/login', '/signup']) {
+      await page.goto(path);
+      const body = (await page.locator('body').textContent()) ?? '';
+      expect(body, `${path} still shows the old name`).not.toContain(OLD_NAME);
+      const html = await page.content();
+      expect(html, `${path} has the old name in its head`).not.toContain(`<title>${OLD_NAME}`);
+    }
+  });
+});

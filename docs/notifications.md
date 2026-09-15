@@ -288,7 +288,7 @@ authenticated, service_role`. A new function is therefore executable by every
    SPF records it gives you and wait for verification.
 3. Create an API key with **send** permission only.
 4. Set `EMAIL_FROM` to an address on that verified domain, e.g.
-   `AI Video Studio <studio@your-domain.com>`.
+   `Scenelio <studio@your-domain.com>`.
 
 ### 8.2 Environment variables
 

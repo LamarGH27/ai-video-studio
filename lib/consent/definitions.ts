@@ -9,10 +9,16 @@ import type { ConsentType } from '@/types/database';
  * that customer agreed to — the historical text is not overwritten by a copy
  * edit. Keep superseded wording in docs/architecture.md.
  *
+ * 2026-09-15 bumped for the rename to Scenelio. The obligation is identical and
+ * a rename is not a change of substance, but only the VERSION is stored — the
+ * text lives here — so leaving the version alone would have made an existing
+ * record silently resolve to wording its signer never read. Bumping costs
+ * nothing: nothing gates on the value and no re-consent is triggered by it.
+ *
  * This service is for consenting adults only. There is deliberately no
  * workflow, field or code path here for media of a minor.
  */
-export const CONSENT_WORDING_VERSION = '2026-01-01';
+export const CONSENT_WORDING_VERSION = '2026-09-15';
 
 export interface ConsentDefinition {
   type: ConsentType;
@@ -47,7 +53,7 @@ export const CONSENT_DEFINITIONS: readonly ConsentDefinition[] = [
     type: 'PORTFOLIO_PERMISSION',
     field: 'portfolio_permission',
     statement:
-      'I give permission for the finished video to be displayed publicly in the AI Video Studio portfolio.',
+      'I give permission for the finished video to be displayed publicly in the Scenelio portfolio.',
     required: false,
     defaultValue: false,
     helpText: 'Entirely optional. Your project goes ahead either way.',

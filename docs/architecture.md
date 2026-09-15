@@ -1,6 +1,6 @@
 # Architecture
 
-How AI Video Studio is put together, and why. Schema detail lives in
+How Scenelio is put together, and why. Schema detail lives in
 [`database.md`](database.md); setup lives in the [README](../README.md).
 
 ---
@@ -512,9 +512,25 @@ workflow or code path anywhere in this repository for media of a minor.
 
 ## 9. Consent wording history
 
-| Version      | Status  | Notes            |
-| ------------ | ------- | ---------------- |
-| `2026-01-01` | current | Initial wording. |
+| Version      | Status     | Notes                                       |
+| ------------ | ---------- | ------------------------------------------- |
+| `2026-09-15` | current    | Public brand renamed to Scenelio.           |
+| `2026-01-01` | superseded | Initial wording, under the old public name. |
+
+Superseded `2026-01-01` text, in full — only the portfolio consent differed:
+
+> I give permission for the finished video to be displayed publicly in the AI
+> Video Studio portfolio.
+
+The two required consents (likeness permission, AI processing) were and remain
+word-for-word identical across both versions.
+
+The rename was not a change of substance: the obligation is the same and only
+the name of the service changed. The version was bumped anyway, because only the
+version is stored and the text lives in `lib/consent/definitions.ts` — leaving
+it alone would have made an existing `2026-01-01` record resolve to wording its
+signer never read. Nothing gates on the value, so bumping triggers no
+re-consent.
 
 When wording changes in substance: add the new version here, mark the previous
 one superseded with its exact text, and bump `CONSENT_WORDING_VERSION`. Existing

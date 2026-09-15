@@ -11,6 +11,8 @@
  * Enough to look like the product, little enough to survive Gmail's sanitiser.
  */
 
+import { brand } from '@/lib/brand';
+
 export interface EmailLayoutOptions {
   /** The <title> and the visible heading. */
   heading: string;
@@ -25,7 +27,8 @@ export interface EmailLayoutOptions {
   footnote?: string;
 }
 
-const BRAND = 'AI Video Studio';
+/** One source for the name, so an email never disagrees with the website. */
+const BRAND = brand.name;
 
 /** Emails are read by strangers' software; everything interpolated is escaped. */
 export function escapeHtml(value: string): string {

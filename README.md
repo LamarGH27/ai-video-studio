@@ -1,7 +1,14 @@
-# AI Video Studio
+# Scenelio
 
 Bespoke cinematic AI-generated video, commissioned from photographs the customer
 already has.
+
+> The product is **Scenelio** (scenelio.co.uk). The repository, the Supabase
+> project, the storage buckets and the `AVS-` project reference keep the names
+> they were created with — renaming deployed infrastructure to match a public
+> name is risk spent on something no customer ever sees. `ai-video-studio` in a
+> path, a migration header or a git remote is an internal identifier, not a
+> stale brand.
 
 This repository is the technical foundation and first MVP: a premium public site,
 accounts, a multi-step creative brief with private reference-image upload,

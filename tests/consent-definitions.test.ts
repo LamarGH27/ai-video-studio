@@ -36,7 +36,7 @@ describe('consent definitions', () => {
       'I consent to these images being processed for the purpose of creating the requested AI-generated media.',
     );
     expect(consentStatement('PORTFOLIO_PERMISSION')).toBe(
-      'I give permission for the finished video to be displayed publicly in the AI Video Studio portfolio.',
+      'I give permission for the finished video to be displayed publicly in the Scenelio portfolio.',
     );
   });
 
