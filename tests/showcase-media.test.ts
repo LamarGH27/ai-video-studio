@@ -338,7 +338,7 @@ describe('the flagship', () => {
    */
   it('shows a real reference image rather than a placeholder', () => {
     const page = read('app/(marketing)/page.tsx');
-    expect(page).toMatch(/mark: 'Your photo'/);
+    expect(page).toMatch(/mark: 'Your reference image'/);
     expect(page).toMatch(/imageUrl: '\/showcase\/midnight-yacht-reference\.webp'/);
     expect(statSync(join(ROOT, 'public/showcase/midnight-yacht-reference.webp')).isFile()).toBe(
       true,
@@ -372,7 +372,7 @@ describe('the flagship', () => {
    */
   it('never claims the reference image came from a customer', () => {
     const section = prose('features/marketing/transformation.tsx');
-    expect(section).toMatch(/reference image and the film are both ours/);
+    expect(section).toMatch(/using our own reference image/);
     expect(section).toMatch(/not a customer project/);
 
     for (const path of ['app/(marketing)/page.tsx', 'features/marketing/transformation.tsx']) {

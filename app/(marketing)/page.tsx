@@ -287,7 +287,7 @@ export default async function HomePage() {
                 <span className="text-brass-300 italic">different</span> world.
               </>
             }
-            lede="Start with a picture of yourself. Tell us where you imagine being. We make the film."
+            lede="Start with a reference image. Tell us where you imagine being. We turn the idea into a cinematic film."
           />
 
           <Transformation
@@ -297,7 +297,11 @@ export default async function HomePage() {
             attribution="DEMONSTRATION"
             panels={[
               {
-                mark: 'Your photo',
+                // Not "Your photo": the asset shown here is generated, and its
+                // signed C2PA manifest says so. The product genuinely accepts
+                // photographs, and the copy that sells the service says so —
+                // this one panel describes the thing actually on screen.
+                mark: 'Your reference image',
                 caption:
                   'One clear picture of a face, lit plainly, against nothing in particular. That is the whole input.',
                 seed: 'stage-photo',

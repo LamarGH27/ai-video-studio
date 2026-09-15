@@ -292,7 +292,7 @@ test('the transformation shows a real input, an idea and a result', async ({ pag
   expect(ratio).toBeLessThan(0.84);
 
   const text = (await section.textContent()) ?? '';
-  expect(text).toContain('Your photo');
+  expect(text).toContain('Your reference image');
   expect(text).toContain('Your idea');
   expect(text).toContain('The cinematic result');
   expect(text).toContain('not a customer project');

@@ -29,7 +29,7 @@ import type { ShowcaseCategory } from '@/lib/catalog/categories';
 export type TransformationAttribution = 'DEMONSTRATION' | 'CUSTOMER';
 
 export interface TransformationPanel {
-  /** Short label above the caption: "Your photo", "Your idea". */
+  /** Short label above the caption: "Your reference image", "Your idea". */
   mark: string;
   caption: string;
   /** Placeholder grading when there is no media. */
@@ -74,8 +74,7 @@ export interface TransformationResult {
 
 const ATTRIBUTION_NOTE: Record<TransformationAttribution, string | null> = {
   // Covers both ends of the sequence. See the note on `attribution` above.
-  DEMONSTRATION:
-    'A demonstration we made end to end — the reference image and the film are both ours, not a customer project.',
+  DEMONSTRATION: 'End-to-end demonstration using our own reference image — not a customer project.',
   // A consented, credited customer film needs no disclaimer.
   CUSTOMER: null,
 };
