@@ -24,7 +24,7 @@ const ROOT = process.cwd();
 const PLAYER = 'features/media/cinematic-video.tsx';
 
 /**
- * Five films, under 2.5 MB each, served from /public. Small enough to live in
+ * Nine films, under 2.5 MB each, served from /public. Small enough to live in
  * the repository; not small enough to send to somebody who did not ask for them.
  */
 describe('showcase media', () => {
@@ -70,10 +70,6 @@ describe('showcase media', () => {
     expect(position('golden-coast'), 'must be within the first five films').toBeLessThan(5);
   });
 
-  /**
-   * Range is the argument the gallery is making: five films that all look like
-   * the same shoot prove less than two that do not.
-   */
   /**
    * Romance is a label, not a schema change. The database enum is created in an
    * applied migration and typed by `ExperienceCategory`; if Romance ever leaks
@@ -331,19 +327,92 @@ describe('the flagship', () => {
 
   it('is labelled as a demonstration exactly once, under the sequence', () => {
     const source = read('features/marketing/transformation.tsx');
-    expect(source).toMatch(/Demonstration concept — not a customer project\./);
-    expect(source.match(/Demonstration concept/g)).toHaveLength(1);
+    expect(source).toMatch(/not a customer project\./);
+    // Once, under the whole sequence — not stamped on every panel.
+    expect(source.match(/not a customer project/g)).toHaveLength(1);
   });
 
   /**
-   * The reference panel stands for the visitor's own photograph. Until somebody
-   * gives us one they are happy to publish, it stays a designed placeholder —
-   * a stock face there would fake the exact thing the section demonstrates.
+   * The reference panel is no longer a placeholder: it holds a real image, at
+   * its own aspect ratio, uncropped.
    */
-  it('does not invent a reference photograph', () => {
+  it('shows a real reference image rather than a placeholder', () => {
     const page = read('app/(marketing)/page.tsx');
-    expect(page).toMatch(/mark: 'Reference'/);
-    expect(prose('app/(marketing)/page.tsx')).not.toMatch(/reference[-\w]*\.(jpg|jpeg|png|webp)/i);
+    expect(page).toMatch(/mark: 'Your photo'/);
+    expect(page).toMatch(/imageUrl: '\/showcase\/midnight-yacht-reference\.webp'/);
+    expect(statSync(join(ROOT, 'public/showcase/midnight-yacht-reference.webp')).isFile()).toBe(
+      true,
+    );
+  });
+
+  it('keeps the reference image inside the image budget', () => {
+    const size = statSync(join(ROOT, 'public/showcase/midnight-yacht-reference.webp')).size;
+    expect(size, 'the input image must not cost more than a poster').toBeLessThan(250_000);
+  });
+
+  /**
+   * Alt text describes the image and the job it does. Never the person in it:
+   * appearance, ethnicity and age are not ours to narrate, and a screen-reader
+   * user needs to know what the panel is for, not what somebody looks like.
+   */
+  it('describes the reference image without describing the person', () => {
+    const page = read('app/(marketing)/page.tsx');
+    const alt = page.match(/imageAlt: '([^']+)'/)?.[1] ?? '';
+    expect(alt).toBe('The reference image used to create the Midnight Yacht concept');
+    expect(alt).not.toMatch(/man|woman|male|female|black|white|young|old|smiling|beard/i);
+  });
+
+  /**
+   * The honesty rule that survives having a real asset.
+   *
+   * The reference image did not come from a customer, so the section must not
+   * say or imply that it did. The one attribution line covers both ends of the
+   * sequence, and nothing anywhere calls the input a supplied or original
+   * customer photograph.
+   */
+  it('never claims the reference image came from a customer', () => {
+    const section = prose('features/marketing/transformation.tsx');
+    expect(section).toMatch(/reference image and the film are both ours/);
+    expect(section).toMatch(/not a customer project/);
+
+    for (const path of ['app/(marketing)/page.tsx', 'features/marketing/transformation.tsx']) {
+      const copy = prose(path);
+      for (const claim of [
+        /original reference photograph/i,
+        /supplied by (?:a |the )?customer/i,
+        /customer'?s own photo/i,
+        /real customer photo/i,
+      ]) {
+        expect(copy, `${path} overclaims the reference image`).not.toMatch(claim);
+      }
+    }
+  });
+
+  it('makes no promise the service cannot keep', () => {
+    const copy = prose('app/(marketing)/page.tsx');
+    for (const claim of [
+      /perfect (?:facial )?(?:consistency|likeness)/i,
+      /identical likeness/i,
+      /guaranteed results/i,
+      /any photograph works/i,
+    ]) {
+      expect(copy, 'unsupported technical claim in the transformation copy').not.toMatch(claim);
+    }
+  });
+
+  /**
+   * A portrait squeezed into a landscape box loses the top of a head. The panel
+   * renders the image at its own ratio instead of filling the square.
+   */
+  it('does not crop the reference image to fit the panel', () => {
+    const page = read('app/(marketing)/page.tsx');
+    expect(page).toMatch(/imageAspect: 'aspect-\[4\/5\]'/);
+    const component = read('features/marketing/transformation.tsx');
+    expect(component).toMatch(/panel\.imageAspect \?\? 'aspect-\[4\/5\]'/);
+    // Lazy, and sized so the box is reserved before it arrives.
+    expect(component).toMatch(/loading="lazy"/);
+    expect(component).toMatch(/width=\{1122\}/);
+    expect(component).toMatch(/height=\{1402\}/);
   });
 });
 

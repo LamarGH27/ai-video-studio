@@ -282,11 +282,12 @@ export default async function HomePage() {
             eyebrow="The Idea"
             title={
               <>
-                One photograph. One sentence.
-                <br className="hidden sm:block" /> Somewhere{' '}
-                <span className="text-brass-300 italic">extraordinary</span>.
+                One photograph. One idea.
+                <br className="hidden sm:block" /> A completely{' '}
+                <span className="text-brass-300 italic">different</span> world.
               </>
             }
+            lede="Start with a picture of yourself. Tell us where you imagine being. We make the film."
           />
 
           <Transformation
@@ -296,19 +297,22 @@ export default async function HomePage() {
             attribution="DEMONSTRATION"
             panels={[
               {
-                // Stays a placeholder until somebody gives us a photograph they
-                // are happy to have on the homepage. A stock face standing in
-                // for a customer would undo the whole point of the section.
-                mark: 'Reference',
-                caption: 'A clear picture of you. The one where you actually like how you look.',
+                mark: 'Your photo',
+                caption:
+                  'One clear picture of a face, lit plainly, against nothing in particular. That is the whole input.',
                 seed: 'stage-photo',
                 category: 'BESPOKE',
-                asSnapshot: true,
+                imageUrl: '/showcase/midnight-yacht-reference.webp',
+                imageAspect: 'aspect-[4/5]',
+                // Describes the image and its job. Nothing about who is in it.
+                imageAlt: 'The reference image used to create the Midnight Yacht concept',
               },
               {
-                mark: 'The idea',
-                caption:
+                mark: 'Your idea',
+                quote:
                   '“A luxury yacht at night, surrounded by friends and family, with fireworks and moonlight.”',
+                caption:
+                  'A sentence or two, in your own words. Where you want to be, and what it should feel like.',
                 seed: 'stage-idea',
                 category: 'LUXURY_LIFESTYLE',
               },

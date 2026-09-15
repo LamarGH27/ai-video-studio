@@ -15,24 +15,50 @@ import type { ShowcaseCategory } from '@/lib/catalog/categories';
  * sentence describing it, and cropping a widescreen film into a square to keep
  * the grid tidy would have cut the subject out of its own demonstration.
  *
- * `result.film` is optional. Without it the panel falls back to the designed
- * placeholder frame, which is what the first two panels use today and what the
- * whole section used before we had anything real to show.
+ * `result.film` and `panel.imageUrl` are both optional. Without them a panel
+ * falls back to the designed placeholder frame, which is what the whole section
+ * used before there was anything real to show.
  *
  * Nothing here may imply a demonstration belongs to a customer. `attribution`
  * is required, and it is stated once, under the sequence, rather than stamped
- * across every panel.
+ * across every panel. That one line has to cover the reference panel as well as
+ * the film: an input nobody actually sent us is exactly as much a
+ * demonstration as an output nobody actually commissioned.
  */
 
 export type TransformationAttribution = 'DEMONSTRATION' | 'CUSTOMER';
 
 export interface TransformationPanel {
-  /** Short label above the caption: "Reference", "The idea". */
+  /** Short label above the caption: "Your photo", "Your idea". */
   mark: string;
   caption: string;
   /** Placeholder grading when there is no media. */
   seed: string;
   category: ShowcaseCategory;
+  /**
+   * A real input image, sized to its own aspect ratio inside the panel.
+   *
+   * It is deliberately NOT cropped to fill the square. This panel stands for
+   * something somebody hands us, and a portrait squeezed into a landscape box
+   * loses the top of a head — which is both the worst possible thing to do to
+   * the one image on the page that is supposed to look ordinary, and a lie
+   * about what we accept.
+   */
+  imageUrl?: string;
+  /** Natural ratio of `imageUrl`, as a Tailwind aspect class. */
+  imageAspect?: string;
+  /** Required with `imageUrl`. Describes the image, not the person in it. */
+  imageAlt?: string;
+  /**
+   * The brief itself, set inside the panel.
+   *
+   * The middle step is a sentence somebody types, and a sentence rendered as an
+   * empty coloured rectangle with the words underneath reads as a placeholder —
+   * especially now that the panel beside it holds a real image. Putting the
+   * words where the picture would go is what makes the middle of the sequence
+   * look like a step rather than a gap.
+   */
+  quote?: string;
   /** A photograph gets a photograph's furniture: white border, slight tilt. */
   asSnapshot?: boolean;
 }
@@ -47,7 +73,9 @@ export interface TransformationResult {
 }
 
 const ATTRIBUTION_NOTE: Record<TransformationAttribution, string | null> = {
-  DEMONSTRATION: 'Demonstration concept — not a customer project.',
+  // Covers both ends of the sequence. See the note on `attribution` above.
+  DEMONSTRATION:
+    'A demonstration we made end to end — the reference image and the film are both ours, not a customer project.',
   // A consented, credited customer film needs no disclaimer.
   CUSTOMER: null,
 };
@@ -70,20 +98,65 @@ export function Transformation({
       <ol className="grid gap-10 sm:grid-cols-2 sm:gap-6">
         {panels.map((panel) => (
           <li key={panel.mark} className="reveal">
-            <div className="media-frame aspect-square">
-              <PortfolioFrame
-                seed={panel.seed}
-                title={panel.mark}
-                category={panel.category}
-                showLabel={false}
-              />
+            <div className="media-frame flex aspect-square items-center justify-center">
+              {panel.imageUrl ? (
+                <>
+                  {/* The graded ground stays behind it, so the photo reads as
+                      something resting ON the page rather than another poster
+                      bled to the edges. */}
+                  <PortfolioFrame
+                    seed={panel.seed}
+                    title={panel.mark}
+                    category={panel.category}
+                    showLabel={false}
+                    className="absolute inset-0"
+                  />
+                  <div
+                    className={cn(
+                      'relative h-[82%] overflow-hidden rounded-[2px] border-4 border-bone-50/90 shadow-[0_18px_50px_-12px_oklch(0_0_0/0.7)]',
+                      panel.imageAspect ?? 'aspect-[4/5]',
+                    )}
+                  >
+                    {/* Not next/image: a static asset already served at the size
+                        it renders at, where the optimiser adds a request and a
+                        cache entry for nothing. Dimensions are set so the box is
+                        reserved before it loads. */}
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={panel.imageUrl}
+                      alt={panel.imageAlt ?? ''}
+                      width={1122}
+                      height={1402}
+                      loading="lazy"
+                      decoding="async"
+                      className="size-full object-cover"
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <PortfolioFrame
+                    seed={panel.seed}
+                    title={panel.mark}
+                    category={panel.category}
+                    showLabel={false}
+                    className="absolute inset-0"
+                  />
 
-              {panel.asSnapshot ? (
-                <div
-                  aria-hidden="true"
-                  className="absolute inset-6 rotate-[-2.5deg] border-6 border-bone-50/85 shadow-2xl sm:inset-10"
-                />
-              ) : null}
+                  {panel.quote ? (
+                    <p className="text-bone-100 relative max-w-[26ch] px-8 display-heading text-[clamp(1.25rem,2.4vw,1.75rem)] text-balance">
+                      {panel.quote}
+                    </p>
+                  ) : null}
+
+                  {panel.asSnapshot ? (
+                    <div
+                      aria-hidden="true"
+                      className="absolute inset-6 rotate-[-2.5deg] border-6 border-bone-50/85 shadow-2xl sm:inset-10"
+                    />
+                  ) : null}
+                </>
+              )}
             </div>
 
             <p className="mt-7 eyebrow">{panel.mark}</p>

@@ -170,6 +170,25 @@ decides whether the service is for them. Order matters as much as membership:
 two sunlit coastal cards sit diagonally rather than sharing a row, which a test
 enforces by comparing `index >> 1`.
 
+### The transformation proof
+
+`Transformation` takes an optional `imageUrl` per panel and renders it at its
+own aspect ratio inside the square, not cropped to fill it. A portrait squeezed
+into a landscape box loses the top of a head, which is the worst thing to do to
+the one image on the page whose job is to look ordinary — and a lie about what
+the service accepts. The panel keeps the graded frame behind the image so it
+reads as something resting on the page rather than another poster bled to the
+edges.
+
+`quote` sets the brief inside the middle panel. The middle step is a sentence
+somebody types, and a sentence rendered as an empty coloured rectangle with the
+words underneath reads as a placeholder — particularly now that the panel beside
+it holds a real image.
+
+The single attribution line under the sequence covers both ends of it. An input
+nobody actually sent us is exactly as much a demonstration as an output nobody
+commissioned, so the line names both rather than only the film.
+
 ### Romance, and categories the database cannot store
 
 `experience_category` is a Postgres enum from an applied, immutable migration,
@@ -279,12 +298,14 @@ its clean result was believed.
 The design is complete; the **content** is not. What would raise it most, in
 order:
 
-1. **A reference photograph** for the transformation sequence — a real picture
-   somebody is happy to publish, to sit where the "Your photo" placeholder is.
-   It is the missing half of the only before/after proof on the site, and the
-   whole proposition is a transformation nobody can currently see the start of.
-   A stock face there would fake the exact thing the section demonstrates, so it
-   stays a placeholder until a real one exists.
+1. **A reference photograph taken with a camera.** The transformation sequence
+   now shows an input image, which is a large improvement on an empty
+   placeholder — but the supplied file carries a signed C2PA manifest declaring
+   it `trainedAlgorithmicMedia` from `gpt-image`, so it is a generated portrait,
+   not a photograph. It is labelled accordingly: the section says the reference
+   image and the film are both ours. The remaining asset is one ordinary
+   camera photograph from somebody willing to have it published, which would
+   turn "here is how it works" into "this actually happened to a person".
 2. **A family or group piece.** Golden Hour and Golden Coast have taken the
    library from one subject to three — a woman, a couple, and the man in the
    other seven — and both sit in the first four cards of the gallery and two of

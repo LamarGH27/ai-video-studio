@@ -213,12 +213,14 @@ test('the homepage shows the range with one player, not nine', async ({ page }) 
       images.map((image) => (image as HTMLImageElement).getAttribute('src')),
     );
 
-  // The flagship still, plus the four strip films. The homepage argues range,
-  // not completeness, and two of its four cards are led by somebody other than
-  // the man in most of the library.
+  // The flagship still, the four strip films, and the one input image the
+  // transformation needs. The homepage argues range, not completeness, and two
+  // of its four strip cards are led by somebody other than the man in most of
+  // the library.
   expect(new Set(posters)).toEqual(
     new Set([
       '/showcase/midnight-yacht-poster.webp',
+      '/showcase/midnight-yacht-reference.webp',
       '/showcase/golden-hour-poster.webp',
       '/showcase/island-arrival-poster.webp',
       '/showcase/golden-coast-poster.webp',
@@ -261,6 +263,46 @@ test('opening the gallery downloads posters, not films', async ({ page }) => {
   expect(requested.filter((path) => path.endsWith('.webp')).length).toBeGreaterThan(0);
 });
 
+/**
+ * The transformation proof. Its whole job is to be understood without reading:
+ * an ordinary picture, a sentence, a film.
+ */
+test('the transformation shows a real input, an idea and a result', async ({ page }) => {
+  await page.goto('/');
+
+  const section = page.locator('section[aria-labelledby="transform-heading"]');
+  const reference = section.locator('img[src="/showcase/midnight-yacht-reference.webp"]');
+
+  await expect(reference).toHaveAttribute(
+    'alt',
+    'The reference image used to create the Midnight Yacht concept',
+  );
+  // Below the fold, so it waits its turn.
+  await expect(reference).toHaveAttribute('loading', 'lazy');
+  // Dimensions on the element, so the box is reserved and nothing shifts.
+  await expect(reference).toHaveAttribute('width', '1122');
+  await expect(reference).toHaveAttribute('height', '1402');
+
+  // Uncropped: rendered at the image's own ratio, not the panel's.
+  const ratio = await reference.evaluate((image) => {
+    const box = image.getBoundingClientRect();
+    return box.width / box.height;
+  });
+  expect(ratio).toBeGreaterThan(0.76);
+  expect(ratio).toBeLessThan(0.84);
+
+  const text = (await section.textContent()) ?? '';
+  expect(text).toContain('Your photo');
+  expect(text).toContain('Your idea');
+  expect(text).toContain('The cinematic result');
+  expect(text).toContain('not a customer project');
+
+  // The section must never claim the input came from a customer.
+  for (const claim of ['Original reference photograph', 'supplied by a customer']) {
+    expect(text, `the section says "${claim}"`).not.toContain(claim);
+  }
+});
+
 test('the flagship film is muted before it is ever asked to play', async ({ page }) => {
   await page.goto('/');
 
@@ -272,7 +314,7 @@ test('the flagship film is muted before it is ever asked to play', async ({ page
     .poll(() => flagship.evaluate((element: HTMLVideoElement) => element.muted))
     .toBe(true);
 
-  await expect(page.getByText('Demonstration concept — not a customer project.')).toBeVisible();
+  await expect(page.getByText(/not a customer project\./)).toBeVisible();
 });
 
 test.describe('reduced motion', () => {
