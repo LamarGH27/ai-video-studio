@@ -7,7 +7,11 @@ import {
   SHOWCASE_FILMS,
   galleryItems,
 } from '@/lib/catalog/showcase';
-import { EXPERIENCE_CATEGORIES, categoryLabel } from '@/lib/catalog/categories';
+import {
+  EXPERIENCE_CATEGORIES,
+  SHOWCASE_CATEGORIES,
+  showcaseCategoryLabel,
+} from '@/lib/catalog/categories';
 import {
   isConceptOnlyGallery,
   portfolioProvenance,
@@ -24,32 +28,29 @@ const PLAYER = 'features/media/cinematic-video.tsx';
  * the repository; not small enough to send to somebody who did not ask for them.
  */
 describe('showcase media', () => {
-  it('has all eight films, in the order the gallery leads with', () => {
+  it('has all nine films, in the order the gallery leads with', () => {
     expect(SHOWCASE_FILMS.map((film) => film.slug)).toEqual([
       'midnight-yacht',
       'golden-hour',
       'after-hours',
+      'golden-coast',
+      'executive-presence',
       'atelier-day',
       'island-arrival',
       'garden-wedding',
-      'executive-presence',
       'the-suite',
     ]);
   });
 
   /**
-   * The wide slots are bookends: the anchor opens the gallery, the closer ends
-   * it, and everything between reads as pairs. An odd number of standard films
-   * would strand the last one beside a gap — which is exactly what the eighth
-   * film would have done to the old one-anchor-and-pairs grid. This is where
-   * that gets caught, rather than in a screenshot.
+   * One full-width anchor, then pairs. An odd number of standard films strands
+   * the last one beside an empty column — which is what eight films did, and
+   * why a second wide slot existed briefly. Nine is one anchor and four pairs.
    */
-  it('opens and closes on a full-width film, with pairs between', () => {
+  it('opens on the only full-width film, with pairs after it', () => {
     const wide = SHOWCASE_FILMS.filter((film) => film.emphasis !== 'standard');
-    expect(wide.map((film) => film.emphasis)).toEqual(['anchor', 'closer']);
-    // And they are the first and last pieces, not wide slots in the middle.
+    expect(wide.map((film) => film.slug)).toEqual(['midnight-yacht']);
     expect(SHOWCASE_FILMS.at(0)?.emphasis).toBe('anchor');
-    expect(SHOWCASE_FILMS.at(-1)?.emphasis).toBe('closer');
   });
 
   it('leaves no film stranded in the pair grid', () => {
@@ -58,28 +59,57 @@ describe('showcase media', () => {
   });
 
   /**
-   * Golden Hour exists because seven films led by the same man read as one
-   * person's showreel. Putting it eighth would have wasted it: a visitor
-   * decides whether a service is for them from the first few things they see.
+   * Eight films led by the same man read as one person's showreel, and a
+   * library of solo portraits never shows that two people can be in one film.
+   * Both corrections are wasted at the bottom of the page: a visitor decides
+   * whether a service is for them from the first few cards.
    */
-  it('puts the film that widens the gallery near the top of it', () => {
-    const position = SHOWCASE_FILMS.findIndex((film) => film.slug === 'golden-hour');
-    expect(position, 'Golden Hour must be the first film after the anchor').toBe(1);
+  it('puts the films that widen the gallery near the top of it', () => {
+    const position = (slug: string) => SHOWCASE_FILMS.findIndex((film) => film.slug === slug);
+    expect(position('golden-hour'), 'must be the first film after the anchor').toBe(1);
+    expect(position('golden-coast'), 'must be within the first five films').toBeLessThan(5);
   });
 
   /**
    * Range is the argument the gallery is making: five films that all look like
    * the same shoot prove less than two that do not.
    */
-  it('covers six categories across eight films', () => {
+  /**
+   * Romance is a label, not a schema change. The database enum is created in an
+   * applied migration and typed by `ExperienceCategory`; if Romance ever leaks
+   * into that list, something has either altered a deployed enum or lied about
+   * one, and both are worse than the alternative this test protects.
+   */
+  it('keeps Romance out of the categories the database can store', () => {
+    expect(SHOWCASE_CATEGORIES).toContain('ROMANCE');
+    expect(EXPERIENCE_CATEGORIES as readonly string[]).not.toContain('ROMANCE');
+    expect(showcaseCategoryLabel('ROMANCE')).toBe('Romance');
+
+    // And no film in a display-only category may point the create flow at an
+    // experience the database has no row for.
+    for (const film of SHOWCASE_FILMS) {
+      if ((EXPERIENCE_CATEGORIES as readonly string[]).includes(film.category)) continue;
+      expect(film.experienceSlug, `${film.slug} needs a real experience`).toBe('custom-concept');
+    }
+  });
+
+  it('covers seven categories across nine films', () => {
     const categories = SHOWCASE_FILMS.map((film) => film.category);
     expect(new Set(categories)).toEqual(
-      new Set(['LUXURY_LIFESTYLE', 'CELEBRATION', 'CINEMATIC', 'FASHION', 'TRAVEL', 'EXECUTIVE']),
+      new Set([
+        'LUXURY_LIFESTYLE',
+        'CELEBRATION',
+        'CINEMATIC',
+        'ROMANCE',
+        'EXECUTIVE',
+        'FASHION',
+        'TRAVEL',
+      ]),
     );
     // Every category a film claims must be one the filter nav can show.
     for (const category of categories) {
-      expect(EXPERIENCE_CATEGORIES, `${category} is not a filterable category`).toContain(category);
-      expect(categoryLabel(category), `${category} has no label`).toBeTruthy();
+      expect(SHOWCASE_CATEGORIES, `${category} is not a filterable category`).toContain(category);
+      expect(showcaseCategoryLabel(category), `${category} has no label`).toBeTruthy();
     }
   });
 
@@ -138,7 +168,7 @@ describe('showcase media', () => {
    * this asserts we never ship.
    */
   it('gives every film a poster, so no frame is ever black', () => {
-    expect(SHOWCASE_FILMS).toHaveLength(8);
+    expect(SHOWCASE_FILMS).toHaveLength(9);
     for (const film of SHOWCASE_FILMS) {
       expect(film.posterUrl, film.slug).toMatch(/\.(webp|jpg|jpeg|png)$/);
       // Named after the film, so a mismatched pair is visible in a diff.
@@ -236,13 +266,36 @@ describe('the homepage strip', () => {
   });
 
   /**
-   * Four cards showing one person read as one person's showreel, whatever the
-   * copy underneath says. Golden Hour took the celebration slot from Garden
-   * Wedding — same category, so no motivation was lost for it.
+   * Four cards showing the same man read as one person's showreel, whatever the
+   * copy underneath says. Two of the four now show somebody else: one led by a
+   * woman, one by a couple.
    */
   it('does not present the whole service through a single subject', () => {
-    expect(HOMEPAGE_STRIP.map((film) => film.slug)).toContain('golden-hour');
-    expect(HOMEPAGE_STRIP.map((film) => film.slug)).not.toContain('garden-wedding');
+    const slugs = HOMEPAGE_STRIP.map((film) => film.slug);
+    expect(slugs).toContain('golden-hour');
+    expect(slugs).toContain('golden-coast');
+    expect(slugs).not.toContain('garden-wedding');
+    expect(slugs, 'romance replaced personal brand, not a broader motivation').not.toContain(
+      'executive-presence',
+    );
+  });
+
+  /**
+   * Golden Coast and Island Arrival are both sunlit and coastal, and Golden
+   * Hour and Golden Coast are both low golden light. Sharing a row is where
+   * that reads as one idea twice — the strip is two columns, so the row is
+   * `index >> 1`, and cards in different rows are separated by a caption block
+   * whether or not their indices are consecutive.
+   *
+   * No arrangement of these four separates both pairs in both layouts. Same-row
+   * adjacency on desktop is the stronger pairing, so that is the one enforced.
+   */
+  it('does not put two films of the same idea in the same row', () => {
+    const slugs = HOMEPAGE_STRIP.map((film) => film.slug);
+    const row = (slug: string) => slugs.indexOf(slug) >> 1;
+
+    expect(row('golden-coast'), 'two coastal cards in one row').not.toBe(row('island-arrival'));
+    expect(row('golden-coast'), 'two golden-light cards in one row').not.toBe(row('golden-hour'));
   });
 
   it('does not spend a slot on the film already at the top of the page', () => {
@@ -295,16 +348,17 @@ describe('the flagship', () => {
 });
 
 describe('the gallery', () => {
-  it('opens with the eight films we can actually play', () => {
+  it('opens with the nine films we can actually play', () => {
     const items = galleryItems([]);
-    expect(items.slice(0, 8).map((item) => item.title)).toEqual([
+    expect(items.slice(0, 9).map((item) => item.title)).toEqual([
       'Midnight Yacht',
       'Golden Hour',
       'After Hours',
+      'Golden Coast',
+      'Executive Presence',
       'Atelier Day',
       'Island Arrival',
       'Garden Wedding',
-      'Executive Presence',
       'The Suite',
     ]);
   });
@@ -333,9 +387,9 @@ describe('the gallery', () => {
     expect(isConceptOnlyGallery(items), 'real media must not imply a commission').toBe(true);
   });
 
-  it('gives the wide slots their full row, and only them', () => {
+  it('gives the anchor its full row, and only it', () => {
     const page = read('app/(marketing)/portfolio/page.tsx');
-    expect(page).toMatch(/entry\.film\?\.emphasis !== 'standard' && 'lg:col-span-2'/);
+    expect(page).toMatch(/entry\.film\?\.emphasis === 'anchor' && 'lg:col-span-2'/);
   });
 
   it('renders films and placeholders as separate grids, films first', () => {

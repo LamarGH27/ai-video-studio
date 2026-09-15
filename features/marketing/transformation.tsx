@@ -2,7 +2,7 @@ import { PortfolioFrame } from '@/features/portfolio/frame';
 import { CinematicVideo } from '@/features/media/cinematic-video';
 import { cn } from '@/lib/utils';
 import type { ShowcaseFilm } from '@/lib/catalog/showcase';
-import type { ExperienceCategory } from '@/types/database';
+import type { ShowcaseCategory } from '@/lib/catalog/categories';
 
 /**
  * The proof: a photograph, a sentence, and the film that came out of them.
@@ -32,7 +32,7 @@ export interface TransformationPanel {
   caption: string;
   /** Placeholder grading when there is no media. */
   seed: string;
-  category: ExperienceCategory;
+  category: ShowcaseCategory;
   /** A photograph gets a photograph's furniture: white border, slight tilt. */
   asSnapshot?: boolean;
 }
@@ -41,7 +41,7 @@ export interface TransformationResult {
   mark: string;
   caption: string;
   seed: string;
-  category: ExperienceCategory;
+  category: ShowcaseCategory;
   /** The real thing, when we have it. */
   film?: ShowcaseFilm;
 }

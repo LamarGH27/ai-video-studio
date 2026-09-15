@@ -1,4 +1,5 @@
 import type { PortfolioProvenance } from '@/lib/catalog/presentation';
+import type { ShowcaseCategory } from '@/lib/catalog/categories';
 import type { ExperienceCategory } from '@/types/database';
 
 /**
@@ -31,7 +32,11 @@ export type ShowcaseAspect = 'video' | 'square' | 'portrait';
 export interface ShowcaseFilm {
   slug: string;
   title: string;
-  category: ExperienceCategory;
+  /**
+   * A film may sit in a category the database has no enum value for — see
+   * lib/catalog/categories.ts. Rows cannot; only declared films can.
+   */
+  category: ShowcaseCategory;
   /** Pre-selects the matching experience in the create flow. */
   experienceSlug: string;
   /** Stated, never derived. */
@@ -42,7 +47,7 @@ export interface ShowcaseFilm {
   longCopy: string;
   videoUrl: string;
   posterUrl: string;
-  /** The film's real shape. All eight are 1280x720. */
+  /** The film's real shape. All nine are 1280x720. */
   aspect: ShowcaseAspect;
   /** Leads the gallery and the homepage strip. */
   featured: boolean;
@@ -52,15 +57,17 @@ export interface ShowcaseFilm {
    * Declared per film rather than derived from position, because "every other
    * one is wide" is a pattern a visitor notices and stops reading.
    *
-   * `anchor` opens the gallery at full width and `closer` ends it the same way;
-   * everything between them reads as pairs. The two wide slots are bookends, so
-   * there is exactly one of each — a third would turn a composition back into
-   * alternating stripes. The pair grid needs an even number of `standard`
-   * films or the last one is stranded beside a gap, which is what made a
-   * `closer` necessary at eight films: seven was one anchor and three pairs,
-   * eight is one anchor, three pairs and an ending.
+   * `anchor` opens the gallery at full width; everything after it reads as
+   * pairs, so the number of `standard` films has to stay even or the last one
+   * is stranded beside an empty column.
+   *
+   * There was briefly a `closer` variant — a second full-width slot at the end
+   * — because eight films left exactly one orphan. Nine is one anchor and four
+   * pairs, so it is gone rather than kept for its own sake. If an even count
+   * returns, a deliberate full-width ending is the right answer again; two
+   * stripes in the middle of the grid never are.
    */
-  emphasis: 'anchor' | 'standard' | 'closer';
+  emphasis: 'anchor' | 'standard';
 }
 
 /**
@@ -92,6 +99,23 @@ export interface ShowcaseFilm {
  * Ordering by arrival date would have put the newest films at the bottom where
  * fewest people reach them. Ordering alphabetically would be an accident
  * pretending to be a decision.
+ */
+/**
+ * Ordered for the page, not by date added.
+ *
+ * The flagship opens at full width; the eight after it read as four pairs, and
+ * each pair contrasts inside itself — warm dusk beside cool night, a sunlit
+ * coast beside grey glass, a warm interior beside open tropics, a bright garden
+ * beside a dark hotel window.
+ *
+ * Positions two and four are spoken for. Golden Hour is the first film led by
+ * someone other than the same man; Golden Coast is the first centred on two
+ * people rather than one. Those are the two pieces that decide whether a
+ * visitor thinks the service is for them, and that decision is made in the
+ * first few cards, not the ninth. Everything else is arranged around them.
+ *
+ * Ordering by arrival date would bury the newest films at the bottom. Ordering
+ * alphabetically would be an accident pretending to be a decision.
  */
 export const SHOWCASE_FILMS: readonly ShowcaseFilm[] = [
   {
@@ -135,6 +159,43 @@ export const SHOWCASE_FILMS: readonly ShowcaseFilm[] = [
       'A sophisticated urban-night concept built around confidence, atmosphere and cinematic city energy, turning an evening in the city into something closer to the opening sequence of a premium film.',
     videoUrl: '/showcase/after-hours.mp4',
     posterUrl: '/showcase/after-hours-poster.webp',
+    aspect: 'video',
+    featured: true,
+    emphasis: 'standard',
+  },
+  {
+    slug: 'golden-coast',
+    title: 'Golden Coast',
+    // Romance is a display-only category: see lib/catalog/categories.ts. No
+    // enum, no migration, nothing persisted.
+    category: 'ROMANCE',
+    // There is no romance experience to pre-select, and inventing one would put
+    // a category in the create flow the database cannot store. Bespoke is the
+    // honest destination: describe what you have in mind.
+    experienceSlug: 'custom-concept',
+    provenance: 'CONCEPT',
+    shortCopy: 'A shared memory reimagined as a cinematic escape.',
+    longCopy:
+      'A romantic coastal concept centred on connection, warmth and shared experience, showing how photographs of two people can become a cinematic memory rather than simply a moving portrait.',
+    videoUrl: '/showcase/golden-coast.mp4',
+    posterUrl: '/showcase/golden-coast-poster.webp',
+    aspect: 'video',
+    featured: true,
+    emphasis: 'standard',
+  },
+  {
+    slug: 'executive-presence',
+    title: 'Executive Presence',
+    // Stored as EXECUTIVE, shown as "Personal Brand". The identifier is in an
+    // applied migration and in rows; only the label moves.
+    category: 'EXECUTIVE',
+    experienceSlug: 'executive',
+    provenance: 'CONCEPT',
+    shortCopy: 'Confidence, ambition and presence translated into a cinematic personal-brand film.',
+    longCopy:
+      'A polished city concept built around modern tailoring, architecture and quiet confidence, designed to show how personal branding can feel cinematic rather than corporate.',
+    videoUrl: '/showcase/executive-presence.mp4',
+    posterUrl: '/showcase/executive-presence-poster.webp',
     aspect: 'video',
     featured: true,
     emphasis: 'standard',
@@ -186,23 +247,6 @@ export const SHOWCASE_FILMS: readonly ShowcaseFilm[] = [
     emphasis: 'standard',
   },
   {
-    slug: 'executive-presence',
-    title: 'Executive Presence',
-    // Stored as EXECUTIVE, shown as "Personal Brand". The identifier is in an
-    // applied migration and in rows; only the label moves.
-    category: 'EXECUTIVE',
-    experienceSlug: 'executive',
-    provenance: 'CONCEPT',
-    shortCopy: 'Confidence, ambition and presence translated into a cinematic personal-brand film.',
-    longCopy:
-      'A polished city concept built around modern tailoring, architecture and quiet confidence, designed to show how personal branding can feel cinematic rather than corporate.',
-    videoUrl: '/showcase/executive-presence.mp4',
-    posterUrl: '/showcase/executive-presence-poster.webp',
-    aspect: 'video',
-    featured: true,
-    emphasis: 'standard',
-  },
-  {
     slug: 'the-suite',
     title: 'The Suite',
     // Shares Luxury Lifestyle with the flagship on purpose. One category
@@ -218,7 +262,7 @@ export const SHOWCASE_FILMS: readonly ShowcaseFilm[] = [
     posterUrl: '/showcase/the-suite-poster.webp',
     aspect: 'video',
     featured: true,
-    emphasis: 'closer',
+    emphasis: 'standard',
   },
 ] as const;
 
@@ -234,28 +278,32 @@ export const FLAGSHIP_FILM = SHOWCASE_FILMS[0] as ShowcaseFilm;
  *
  * The homepage is arguing that the service covers what somebody might want a
  * film FOR, so these are four different reasons to buy one — a celebration, a
- * wardrobe, a professional presence, a journey — not the four most recent
- * pieces. The rule is one film per customer motivation.
+ * journey, an anniversary, a wardrobe — not the four most recent pieces. The
+ * rule is one film per customer motivation.
  *
- * Golden Hour holds the celebration slot in place of Garden Wedding. It was the
- * only swap that cost nothing: both are Celebration, so the four motivations
- * are untouched, and it is the one film in the library not led by the same man.
- * Four cards showing one person read as one person's showreel, whatever the
- * copy underneath says, and the homepage is where somebody decides whether this
- * service is for them. Garden Wedding keeps its place in the gallery.
+ * Golden Coast takes the slot Executive Presence held. Personal branding is a
+ * real buyer and keeps its place in the gallery, but it is the narrowest of the
+ * motivations here and the least like what somebody meeting this service
+ * through a shared link is looking for; romance is the broader consumer reason
+ * to commission a film about yourself, and it is the only card that shows two
+ * people, which is a thing eight solo portraits never demonstrated.
  *
- * Two deliberate omissions. After Hours is a strong piece, but "it can look
- * like a film" is the question the flagship directly above it already answers;
- * spending a slot on mood would cost a slot on a motivation. The Suite is quiet
- * Luxury Lifestyle, which the flagship also occupies. Both earn their place in
- * the gallery, where range is the point; the homepage is making a narrower
- * argument.
+ * Order matters as much as membership. Golden Coast and Island Arrival are both
+ * sunlit and coastal, so they sit diagonally rather than side by side, and the
+ * strip alternates: urban dusk, bright tropics, golden coast, warm interior.
+ * Golden Hour keeps the first card, which is the one that gets read.
+ *
+ * Two deliberate omissions beyond Executive Presence. After Hours is a strong
+ * piece, but "it can look like a film" is the question the flagship directly
+ * above it already answers. The Suite is quiet Luxury Lifestyle, which the
+ * flagship also occupies. Both earn their place in the gallery, where range is
+ * the point; the homepage is making a narrower argument.
  */
 export const HOMEPAGE_STRIP: readonly ShowcaseFilm[] = [
   'golden-hour',
-  'atelier-day',
-  'executive-presence',
   'island-arrival',
+  'golden-coast',
+  'atelier-day',
 ].map((slug) => {
   const film = SHOWCASE_FILMS.find((candidate) => candidate.slug === slug);
   if (!film) throw new Error(`Homepage strip names a film that does not exist: ${slug}`);
@@ -283,7 +331,8 @@ export interface GalleryItem {
   slug: string;
   title: string;
   description: string | null;
-  category: ExperienceCategory;
+  /** Wider than a row's category: a declared film may be Romance. */
+  category: ShowcaseCategory;
   provenance: PortfolioProvenance | null;
   experienceSlug: string | null;
   /** Present only where we hold real media. */

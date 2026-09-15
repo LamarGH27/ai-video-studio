@@ -9,9 +9,9 @@ import { CinematicVideo } from '@/features/media/cinematic-video';
 import { listPortfolioEntries } from '@/lib/data/portfolio';
 import { galleryItems, type GalleryItem } from '@/lib/catalog/showcase';
 import {
-  EXPERIENCE_CATEGORIES,
-  categoryLabel,
-  isExperienceCategory,
+  SHOWCASE_CATEGORIES,
+  isShowcaseCategory,
+  showcaseCategoryLabel,
 } from '@/lib/catalog/categories';
 import {
   isConceptOnlyGallery,
@@ -38,7 +38,7 @@ export default async function PortfolioPage({
   searchParams: Promise<{ category?: string }>;
 }) {
   const { category } = await searchParams;
-  const activeCategory = category && isExperienceCategory(category) ? category : null;
+  const activeCategory = category && isShowcaseCategory(category) ? category : null;
 
   // The two films we can actually play lead the list; the concepts we can only
   // describe follow them.
@@ -92,7 +92,7 @@ export default async function PortfolioPage({
                   All work
                 </Link>
               </li>
-              {EXPERIENCE_CATEGORIES.map((value) => (
+              {SHOWCASE_CATEGORIES.map((value) => (
                 <li key={value}>
                   <Link
                     href={`/portfolio?category=${value}`}
@@ -104,7 +104,7 @@ export default async function PortfolioPage({
                         : 'border-white/12 text-bone-400 hover:border-white/30 hover:text-bone-50',
                     )}
                   >
-                    {categoryLabel(value)}
+                    {showcaseCategoryLabel(value)}
                   </Link>
                 </li>
               ))}
@@ -135,8 +135,8 @@ export default async function PortfolioPage({
               Widescreen pieces in a three-column grid would each be shorter
               than the paragraph underneath them, and a row of three identical
               bands is the point at which a visitor stops looking. Two columns
-              gives every film room; the anchor opens at full width and the
-              closer ends the same way, with pairs between them. */}
+              gives every film room, and the anchor opens at full width above
+              them: one hero, then pairs. */}
           {films.length > 0 ? (
             <ul className="mt-14 grid gap-x-6 gap-y-14 lg:grid-cols-2">
               {films.map((entry) => (
@@ -144,7 +144,7 @@ export default async function PortfolioPage({
                   key={entry.id}
                   className={cn(
                     'group flex reveal flex-col',
-                    entry.film?.emphasis !== 'standard' && 'lg:col-span-2',
+                    entry.film?.emphasis === 'anchor' && 'lg:col-span-2',
                   )}
                 >
                   {entry.film ? (
@@ -211,7 +211,7 @@ export default async function PortfolioPage({
                           card, so it is not a pointer-only affordance. */}
                       <div className="absolute inset-0 flex items-end bg-ink-990/45 opacity-0 transition-opacity duration-500 group-focus-within:opacity-100 group-hover:opacity-100 motion-reduce:transition-none">
                         <p className="p-6 font-mono text-[0.6rem] tracking-[0.3em] text-bone-50/80 uppercase">
-                          {categoryLabel(entry.category)}
+                          {showcaseCategoryLabel(entry.category)}
                         </p>
                       </div>
                     </div>
@@ -242,7 +242,7 @@ function GalleryCaption({
   return (
     <div className="mt-6 flex flex-1 flex-col">
       <p className="text-[0.65rem] tracking-[0.2em] text-brass-300/75 uppercase">
-        {categoryLabel(entry.category)}
+        {showcaseCategoryLabel(entry.category)}
       </p>
       <h2
         className={cn(

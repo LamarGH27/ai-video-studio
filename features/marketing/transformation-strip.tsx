@@ -1,6 +1,6 @@
 import { PortfolioFrame } from '@/features/portfolio/frame';
 import { provenanceLabel, type PortfolioProvenance } from '@/lib/catalog/presentation';
-import type { ExperienceCategory } from '@/types/database';
+import type { ShowcaseCategory } from '@/lib/catalog/categories';
 
 /**
  * The hero's visual: a photograph turning into a scene.
@@ -33,7 +33,7 @@ export function TransformationStrip({
 }: {
   seed: string;
   title: string;
-  category: ExperienceCategory;
+  category: ShowcaseCategory;
   /** A still from a real film. Falls back to the composed frame without it. */
   scenePosterUrl?: string;
   /** Required alongside a still: whose work this is must travel with it. */

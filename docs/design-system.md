@@ -123,37 +123,38 @@ not rows: migrations 000000-000700 are deployed and immutable, and a film is not
 a schema change. Adding one is media in `public/showcase` plus an entry — nothing
 to migrate, nothing that can drift from the files on disk.
 
-Files live under `/public` and are served as static assets. Eight ten-second
-films at under 2.5 MB each — 15.4 MB in total, 32% of the threshold — is still
+Files live under `/public` and are served as static assets. Nine ten-second
+films at under 2.5 MB each — 16.9 MB in total, 34% of the threshold — is still
 the right size for that: no signed URLs to expire, no bucket to configure, and no
 request to Supabase from a statically rendered marketing page. Nothing downloads
-until somebody presses play, so the gallery costs eight posters (0.34 MB) rather
-than eight films. Past roughly a dozen films — or 50 MB — this moves to object
+until somebody presses play, so the gallery costs nine posters (0.37 MB) rather
+than nine films. Past roughly a dozen films — or 50 MB — this moves to object
 storage behind a CDN, and only `videoUrl`/`posterUrl` change. Tests fail before
 either limit is a surprise, and an E2E spec asserts that opening `/portfolio`
 fetches no `.mp4` at all.
 
 `emphasis` declares how much room a piece takes in the gallery, per film rather
 than by position: "every other film is wide" is a pattern a visitor notices and
-then stops reading. The two wide slots are bookends — `anchor` opens the gallery
-at full width, `closer` ends it the same way, and everything between reads as
-pairs. There is exactly one of each; a third would turn a composition back into
-stripes. The pair grid needs an even number of `standard` films or the last one
-is stranded beside a gap, which is what made a closer necessary at eight films:
-seven was one anchor and three pairs, eight is one anchor, three pairs and an
-ending. A test enforces that rather than leaving it to a screenshot.
+then stops reading. `anchor` opens the gallery at full width and everything after
+it reads as pairs, so the number of `standard` films has to stay even or the last
+one is stranded beside a gap. A test enforces that rather than leaving it to a
+screenshot. There was briefly a second wide slot, `closer`, because eight films
+left exactly one orphan; nine is one anchor and four pairs, so it is gone rather
+than kept for its own sake. If an even count returns, a deliberate full-width
+ending is the right answer again — two stripes mid-grid never are.
 
 The gallery renders films and unfilmed directions as two grids — the films, then
 the placeholders in a smaller three-column contact sheet — so a placeholder can
 never outrank real work.
 
 Registry order is editorial, not chronological. Each pair contrasts inside
-itself — warm dusk beside cool night, warm interior beside open water, bright
-garden beside grey glass — because ordering by arrival date would put the newest
-films at the bottom where fewest people reach them. Position 2, directly after
-the anchor, belongs to whichever film most widens who can picture themselves
-buying this: a visitor decides that from the first few things they see, not from
-the eighth.
+itself — warm dusk beside cool night, a sunlit coast beside grey glass, a warm
+interior beside open tropics — because ordering by arrival date would put the
+newest films at the bottom where fewest people reach them. The first few
+positions after the anchor belong to whichever films most widen who can picture
+themselves buying this: Golden Hour, the first not led by the same man, and
+Golden Coast, the first centred on two people rather than one. A visitor decides
+whether a service is for them in the first few cards, not the ninth.
 
 `HOMEPAGE_STRIP` is a declared list of four films, not a slice of the gallery.
 The homepage argues that the service covers what somebody might want a film
@@ -162,10 +163,31 @@ professional presence, journey. Mood pieces and a second film in the flagship's
 own category earn their place in the gallery, where range is the point, and lose
 a homepage slot to a motivation that is not otherwise represented.
 
-Within that rule, the celebration slot goes to the film not led by the same
-subject as the rest of the library. Four cards showing one person read as one
-person's showreel whatever the copy underneath says, and the homepage is where
-somebody decides whether the service is for them.
+Within that rule, two of the four slots go to films not led by the same subject
+as the rest of the library. Four cards showing one person read as one person's
+showreel whatever the copy underneath says, and the homepage is where somebody
+decides whether the service is for them. Order matters as much as membership:
+two sunlit coastal cards sit diagonally rather than sharing a row, which a test
+enforces by comparing `index >> 1`.
+
+### Romance, and categories the database cannot store
+
+`experience_category` is a Postgres enum from an applied, immutable migration,
+and `ExperienceCategory` mirrors it. Romance is not in it, so Romance lives in
+`ShowcaseCategory` — `ExperienceCategory | 'ROMANCE'` — and nowhere else.
+
+The split is load-bearing rather than cosmetic. `ExperienceCategory` stays the
+type of anything that round-trips through the database: rows, orders, the create
+flow. `ShowcaseCategory` is the type of anything the public site merely renders.
+A film can be Romance; a project cannot, and the types say so. Adding the member
+made the compiler list every component that had quietly assumed a display
+category was a database one, which was the point.
+
+`SHOWCASE_CATEGORIES` drives the gallery filter so a category with a film in it
+is not a dead end; `EXPERIENCE_CATEGORIES` stays the database-backed list, and a
+test fails if Romance ever appears in it. A film in a display-only category has
+no experience to pre-select, so it points the create flow at Bespoke — which is
+the honest destination anyway: describe what you have in mind.
 
 **Provenance is stated, never inferred.** It used to be derived from whether a
 piece had media, which held right up until we had real concept films: both of
@@ -263,14 +285,14 @@ order:
    whole proposition is a transformation nobody can currently see the start of.
    A stock face there would fake the exact thing the section demonstrates, so it
    stays a placeholder until a real one exists.
-2. **More films with a different subject in them.** Golden Hour is the first;
-   the other seven all feature the same man. One film breaks the pattern but
-   does not replace it — the library is still strong on range of _occasion_ and
-   thin on range of _person_. A multi-subject piece (a couple, a family) would
-   do more than another occasion.
+2. **A family or group piece.** Golden Hour and Golden Coast have taken the
+   library from one subject to three — a woman, a couple, and the man in the
+   other seven — and both sit in the first four cards of the gallery and two of
+   the four on the homepage. What is still missing is more than two people who
+   are not extras: a family, a group of friends. Less urgent than it was.
 3. **An OG/social image**, 1200x630 — the product will mostly be met through a
    shared link, and there is nothing behind one today.
-4. **More occasions**, after the above. Eight films cover six categories; only
+4. **More occasions**, after the above. Nine films cover seven categories; only
    Social Media and Bespoke have none, and eight gallery pieces are still
    `PortfolioFrame` placeholders.
 5. **A logo mark**, if the wordmark is ever not enough.

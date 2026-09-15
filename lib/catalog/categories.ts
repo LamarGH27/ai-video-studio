@@ -49,3 +49,47 @@ export function categoryLabel(category: ExperienceCategory): string {
 export function isExperienceCategory(value: string): value is ExperienceCategory {
   return (EXPERIENCE_CATEGORIES as readonly string[]).includes(value);
 }
+
+/**
+ * Categories the public gallery can DISPLAY, which is a wider set than the
+ * categories the database can STORE.
+ *
+ * `experience_category` is a Postgres enum created in
+ * 20260101000000_initial_schema.sql. That migration is deployed and immutable,
+ * every `portfolio_items` and `video_experiences` row is typed by it, and a
+ * showcase label is not a reason to alter a type that customer orders depend
+ * on. So Romance exists here and nowhere else: no migration, no enum change, no
+ * persisted value.
+ *
+ * The split is load-bearing rather than cosmetic. `ExperienceCategory` stays the
+ * type of anything that round-trips through the database — rows, orders, the
+ * create flow — and `ShowcaseCategory` is only ever the type of something we
+ * declare in code and render. A film can be Romance; a project cannot, and the
+ * types say so.
+ *
+ * When Romance becomes something a customer can actually order, it becomes an
+ * enum value in a new migration and moves up into `ExperienceCategory`, and
+ * this extra member disappears. Until then, claiming the database knows about
+ * it would be a lie the type system would happily tell.
+ */
+export type ShowcaseCategory = ExperienceCategory | 'ROMANCE';
+
+/** Display order for the Concept Gallery filters. */
+export const SHOWCASE_CATEGORIES: readonly ShowcaseCategory[] = [
+  ...EXPERIENCE_CATEGORIES,
+  'ROMANCE',
+] as const;
+
+const SHOWCASE_ONLY_LABELS: Record<Exclude<ShowcaseCategory, ExperienceCategory>, string> = {
+  ROMANCE: 'Romance',
+};
+
+export function showcaseCategoryLabel(category: ShowcaseCategory): string {
+  return isExperienceCategory(category)
+    ? categoryLabel(category)
+    : SHOWCASE_ONLY_LABELS[category as Exclude<ShowcaseCategory, ExperienceCategory>];
+}
+
+export function isShowcaseCategory(value: string): value is ShowcaseCategory {
+  return (SHOWCASE_CATEGORIES as readonly string[]).includes(value);
+}

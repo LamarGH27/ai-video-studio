@@ -170,27 +170,28 @@ test('no film is downloaded, and none plays, until somebody asks', async ({ page
   }
 });
 
-test('the gallery leads with all eight films, before any placeholder', async ({ page }) => {
+test('the gallery leads with all nine films, before any placeholder', async ({ page }) => {
   await page.goto('/portfolio');
 
   const headings = await page.locator('h2').allTextContents();
-  expect(headings.slice(0, 8)).toEqual([
+  expect(headings.slice(0, 9)).toEqual([
     'Midnight Yacht',
     'Golden Hour',
     'After Hours',
+    'Golden Coast',
+    'Executive Presence',
     'Atelier Day',
     'Island Arrival',
     'Garden Wedding',
-    'Executive Presence',
     'The Suite',
   ]);
 
-  // Eight players, and every one of them is a film we hold.
-  await expect(page.locator('video')).toHaveCount(8);
+  // Nine players, and every one of them is a film we hold.
+  await expect(page.locator('video')).toHaveCount(9);
 
   // Every piece on the page carries the mark; none is presented as a commission.
   const marks = await page.getByText('Concept', { exact: true }).count();
-  expect(marks).toBeGreaterThanOrEqual(8);
+  expect(marks).toBeGreaterThanOrEqual(9);
   const body = (await page.locator('body').textContent()) ?? '';
   for (const word of ['Commission', 'Client work', 'Case study']) {
     expect(body, `the gallery says "${word}"`).not.toContain(word);
@@ -201,7 +202,7 @@ test('the gallery leads with all eight films, before any placeholder', async ({ 
  * The homepage carries five film stills and exactly one player. Posters are
  * images; only the transformation result is a <video>, and only it may autoplay.
  */
-test('the homepage shows the range with one player, not eight', async ({ page }) => {
+test('the homepage shows the range with one player, not nine', async ({ page }) => {
   await page.goto('/');
 
   await expect(page.locator('video')).toHaveCount(1);
@@ -212,19 +213,32 @@ test('the homepage shows the range with one player, not eight', async ({ page })
       images.map((image) => (image as HTMLImageElement).getAttribute('src')),
     );
 
-  // The flagship still, plus the four strip films. Garden Wedding, After Hours
-  // and The Suite are gallery pieces: the homepage argues range, not
-  // completeness, and one of its four cards is led by somebody other than the
-  // man in the rest of the library.
+  // The flagship still, plus the four strip films. The homepage argues range,
+  // not completeness, and two of its four cards are led by somebody other than
+  // the man in most of the library.
   expect(new Set(posters)).toEqual(
     new Set([
       '/showcase/midnight-yacht-poster.webp',
       '/showcase/golden-hour-poster.webp',
-      '/showcase/atelier-day-poster.webp',
-      '/showcase/executive-presence-poster.webp',
       '/showcase/island-arrival-poster.webp',
+      '/showcase/golden-coast-poster.webp',
+      '/showcase/atelier-day-poster.webp',
     ]),
   );
+});
+
+/**
+ * Romance is a label the gallery renders, not a value the database can store.
+ * The filter has to work anyway, or a category with a film in it is a dead end.
+ */
+test('the Romance filter works, though no row can be Romance', async ({ page }) => {
+  await page.goto('/portfolio');
+  await page.getByRole('link', { name: 'Romance', exact: true }).click();
+
+  await expect(page).toHaveURL(/category=ROMANCE/);
+  const headings = await page.locator('h2').allTextContents();
+  expect(headings).toEqual(['Golden Coast']);
+  await expect(page.locator('video')).toHaveCount(1);
 });
 
 /**

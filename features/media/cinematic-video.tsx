@@ -3,10 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pause, Play, Volume2, VolumeX } from 'lucide-react';
 import { provenanceLabel, type PortfolioProvenance } from '@/lib/catalog/presentation';
-import { categoryLabel } from '@/lib/catalog/categories';
+import { showcaseCategoryLabel, type ShowcaseCategory } from '@/lib/catalog/categories';
 import { cn } from '@/lib/utils';
 import type { ShowcaseAspect } from '@/lib/catalog/showcase';
-import type { ExperienceCategory } from '@/types/database';
 
 /**
  * One player for every film on the site.
@@ -52,7 +51,7 @@ export interface CinematicVideoProps {
   videoUrl: string;
   posterUrl: string;
   title: string;
-  category: ExperienceCategory;
+  category: ShowcaseCategory;
   /** Read out with the title; not shown here, since callers own their captions. */
   description?: string;
   provenance: PortfolioProvenance;
@@ -81,8 +80,8 @@ export function CinematicVideo({
 
   const mark = provenanceLabel(provenance);
   const accessibleName = description
-    ? `${title} — ${categoryLabel(category)}. ${description}`
-    : `${title} — ${categoryLabel(category)}`;
+    ? `${title} — ${showcaseCategoryLabel(category)}. ${description}`
+    : `${title} — ${showcaseCategoryLabel(category)}`;
 
   useEffect(() => {
     if (mode !== 'autoplay') return;

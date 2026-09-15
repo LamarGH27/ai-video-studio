@@ -1,6 +1,5 @@
 import { cn } from '@/lib/utils';
-import { categoryLabel } from '@/lib/catalog/categories';
-import type { ExperienceCategory } from '@/types/database';
+import { showcaseCategoryLabel, type ShowcaseCategory } from '@/lib/catalog/categories';
 
 /**
  * The stand-in for a film still.
@@ -36,7 +35,7 @@ interface Grade {
  * meaning: travel is daylight, celebration is candlelight, executive is cold
  * and architectural.
  */
-const CATEGORY_GRADES: Record<ExperienceCategory, Grade> = {
+const CATEGORY_GRADES: Record<ShowcaseCategory, Grade> = {
   LUXURY_LIFESTYLE: {
     from: 'oklch(0.42 0.055 210)',
     to: 'oklch(0.19 0.022 250)',
@@ -55,6 +54,8 @@ const CATEGORY_GRADES: Record<ExperienceCategory, Grade> = {
   TRAVEL: { from: 'oklch(0.46 0.07 88)', to: 'oklch(0.20 0.03 60)', keyX: 78, horizon: 62 },
   EXECUTIVE: { from: 'oklch(0.30 0.02 250)', to: 'oklch(0.17 0.012 260)', keyX: 20, horizon: 44 },
   BESPOKE: { from: 'oklch(0.33 0.05 30)', to: 'oklch(0.18 0.025 300)', keyX: 55, horizon: 60 },
+  // Display-only, like the category itself: low sun, rose into dusk.
+  ROMANCE: { from: 'oklch(0.44 0.07 38)', to: 'oklch(0.19 0.03 345)', keyX: 84, horizon: 64 },
 };
 
 /**
@@ -62,7 +63,7 @@ const CATEGORY_GRADES: Record<ExperienceCategory, Grade> = {
  * pixel-identical. Derived from the slug, bounded to a few percent — enough to
  * read as different frames of the same shoot.
  */
-function gradeFor(seed: string, category: ExperienceCategory): Grade {
+function gradeFor(seed: string, category: ShowcaseCategory): Grade {
   const base = CATEGORY_GRADES[category];
   let hash = 0;
   for (let index = 0; index < seed.length; index += 1) {
@@ -86,7 +87,7 @@ export function PortfolioFrame({
 }: {
   seed: string;
   title: string;
-  category: ExperienceCategory;
+  category: ShowcaseCategory;
   className?: string;
   /** Off for decorative strips, where a repeated caption is just noise. */
   showLabel?: boolean;
@@ -103,7 +104,7 @@ export function PortfolioFrame({
     <div
       className={cn('relative h-full w-full overflow-hidden', className)}
       role="img"
-      aria-label={`${title} — ${categoryLabel(category)}. Placeholder frame; film stills are added as work is published.`}
+      aria-label={`${title} — ${showcaseCategoryLabel(category)}. Placeholder frame; film stills are added as work is published.`}
     >
       {/* Ground: a graded sky falling into shadow. */}
       <div
@@ -156,7 +157,7 @@ export function PortfolioFrame({
           aria-hidden="true"
           className="absolute bottom-0 left-0 p-5 font-mono text-[0.6rem] tracking-[0.32em] text-bone-50/45 uppercase"
         >
-          {categoryLabel(category)}
+          {showcaseCategoryLabel(category)}
         </p>
       ) : null}
     </div>

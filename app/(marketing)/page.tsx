@@ -9,7 +9,7 @@ import { TransformationStrip } from '@/features/marketing/transformation-strip';
 import { Transformation } from '@/features/marketing/transformation';
 import { listPortfolioEntries } from '@/lib/data/portfolio';
 import { listActiveExperiences } from '@/lib/data/experiences';
-import { categoryLabel } from '@/lib/catalog/categories';
+import { showcaseCategoryLabel } from '@/lib/catalog/categories';
 import { brand } from '@/lib/brand';
 import { JOURNEY_BRIEF_STEPS, JOURNEY_PRODUCTION_STAGES } from '@/lib/journey';
 import { FLAGSHIP_FILM, HOMEPAGE_STRIP, galleryItems } from '@/lib/catalog/showcase';
@@ -206,7 +206,7 @@ export default async function HomePage() {
 
                     <div className="absolute inset-x-0 bottom-0 p-6 sm:p-7">
                       <p className="text-[0.65rem] tracking-[0.22em] text-brass-300/80 uppercase">
-                        {categoryLabel(experience.category)}
+                        {showcaseCategoryLabel(experience.category)}
                       </p>
                       <h3 className="mt-2.5 display-heading text-2xl">
                         {experienceDisplayName(experience.slug, experience.name)}
@@ -365,7 +365,7 @@ export default async function HomePage() {
                     imageClassName="transition-transform duration-[1.4s] ease-cinema group-hover:scale-[1.06]"
                   />
                   <p className="mt-5 text-[0.65rem] tracking-[0.22em] text-brass-300/75 uppercase">
-                    {categoryLabel(film.category)}
+                    {showcaseCategoryLabel(film.category)}
                   </p>
                   <h3 className="mt-2 display-heading text-lg transition-colors group-hover:text-brass-200">
                     {film.title}
