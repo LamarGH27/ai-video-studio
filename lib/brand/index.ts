@@ -50,13 +50,40 @@ export const brand = {
   },
 
   /**
-   * For copyright lines. The product name, because no legal entity is
-   * registered — this deliberately does not say "Ltd" until one exists.
+   * The legal operator. Deliberately null, and deliberately not `name`.
+   *
+   * Scenelio is a trading brand. No company of that name has been registered
+   * and no operating entity has been supplied, so there is nothing truthful to
+   * put here — and a field called `legalName` holding a trading name is worse
+   * than an empty one, because the next person to need a legal identity finds
+   * it already populated and ships it.
+   *
+   * Nothing reads this today. The copyright line uses `name`, which is correct:
+   * a notice may name the trading brand and asserts no incorporation.
+   *
+   * These surfaces WILL need a real value, and none of them exists yet:
+   *   - Terms of Service and Privacy Policy. UK GDPR requires the data
+   *     controller to be identified by name and address; "Scenelio" alone does
+   *     not satisfy that.
+   *   - Any marketing email. PECR/CAN-SPAM require the sender's identity and a
+   *     postal address. Transactional mail is exempt and says so in its own
+   *     footer, which is why the current templates are fine.
+   *   - Stripe. The merchant of record and the card statement descriptor are
+   *     the registered entity, not the brand.
+   *
+   * Typed `null` on purpose: `as const` narrows it, so any consumer written
+   * before an entity exists has to handle its absence rather than rendering
+   * "null" or silently falling back to the brand.
    */
-  legalName: 'Scenelio',
+  legalEntity: null,
 } as const;
 
-/** `2024–2026 Name` for a footer, without a hydration mismatch on New Year. */
+/**
+ * `© 2026 Name` for a footer, without a hydration mismatch on New Year.
+ *
+ * Names the trading brand, not an entity. A copyright notice does not assert
+ * incorporation, and this must never quietly gain "Ltd" — see `legalEntity`.
+ */
 export function copyrightLine(year: number): string {
-  return `© ${year} ${brand.legalName}`;
+  return `© ${year} ${brand.name}`;
 }

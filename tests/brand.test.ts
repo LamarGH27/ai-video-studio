@@ -46,7 +46,6 @@ describe('the public brand', () => {
     delete process.env.NEXT_PUBLIC_BRAND_NAME;
     const { brand } = await import('@/lib/brand');
     expect(brand.name).toBe('Scenelio');
-    expect(brand.legalName).toBe('Scenelio');
     expect(brand.summary).toBe('Scenelio — personalised cinematic films from your photos');
   });
 
@@ -70,9 +69,47 @@ describe('the public brand', () => {
     }
   });
 
-  it('puts the name in the copyright line without inventing a company', () => {
+  it('puts the trading name in the copyright line, and no company suffix', () => {
     expect(copyrightLine(2026)).toBe('© 2026 Scenelio');
-    expect(copyrightLine(2026)).not.toMatch(/\b(Ltd|Limited|Inc|LLC)\b/);
+    expect(copyrightLine(2026)).not.toMatch(/\b(Ltd|Limited|Inc|LLC|PLC|LLP|GmbH)\b/);
+  });
+
+  /**
+   * Scenelio is a trading brand. No entity of that name is registered, so the
+   * code must not carry one — and must not carry a field whose name implies
+   * one is configured, which is how a trading name ends up on a terms page.
+   */
+  it('claims no legal entity, because none exists', async () => {
+    const { brand } = await import('@/lib/brand');
+    expect(brand.legalEntity, 'an entity was configured without being registered').toBeNull();
+    expect(brand, 'legalName invites a trading name into a legal surface').not.toHaveProperty(
+      'legalName',
+    );
+  });
+
+  /**
+   * Checks the object's values, not the file's text. An earlier version of this
+   * regexed single-quoted spans out of the source, which silently stopped
+   * working the moment a doc comment contained an apostrophe — the quote
+   * pairing desynchronises and it scans the wrong ranges. Reading the values is
+   * both exact and immune to how the file is written.
+   */
+  it('never presents the brand as an incorporated company', async () => {
+    const { brand } = await import('@/lib/brand');
+
+    const strings = (value: unknown): string[] => {
+      if (typeof value === 'string') return [value];
+      if (value && typeof value === 'object') return Object.values(value).flatMap(strings);
+      return [];
+    };
+
+    const values = strings(brand);
+    expect(values.length).toBeGreaterThan(4);
+    for (const value of values) {
+      expect(value, `"${value}" implies an incorporated entity`).not.toMatch(
+        /\b(Ltd|Limited|Inc|LLC|PLC|LLP|GmbH)\b/,
+      );
+    }
   });
 });
 
@@ -155,7 +192,7 @@ describe('nothing hard-codes the name', () => {
   it('reads the name from lib/brand wherever a surface shows it', () => {
     for (const path of ['components/site/wordmark.tsx', 'components/site/site-footer.tsx']) {
       expect(read(path)).toMatch(/from '@\/lib\/brand'/);
-      expect(read(path)).toMatch(/brand\.(name|legalName)|copyrightLine/);
+      expect(read(path)).toMatch(/brand\.name|copyrightLine/);
     }
     // Emails too: a message that disagrees with the website is worse than one
     // with no name in it at all.
