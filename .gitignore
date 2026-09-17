@@ -20,11 +20,15 @@ build
 dist
 
 # environment — never commit real secrets
+#
+# Patterns, not a list of filenames. The list form silently failed to cover
+# .env.staging.local, which is exactly the kind of file that carries a
+# service-role key and a database password. Anything matching .env or
+# .env<anything> is ignored; .env.example is force-tracked below because it is
+# the template and holds no values.
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*
+!.env.example
 
 # supabase local development
 supabase/.branches
