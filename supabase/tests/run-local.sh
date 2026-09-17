@@ -191,6 +191,10 @@ for script in "$REPO_ROOT"/supabase/tests/concurrency/*.sh; do
   "$script"
 done
 
+# H2 uses independent native connections through the test-only pg driver.
+# npm ci must precede this runner, as for the application test suites.
+node "$REPO_ROOT/supabase/tests/concurrency/02_reference_orphan_claims.mjs"
+
 say "RESULTS"
 psql -X -P pager=off -c "
   select area as \"Area\",

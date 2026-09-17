@@ -57,9 +57,8 @@ values
 select avs_test.become('customer_a');
 
 select avs_test.attempt('Notifications', 'Owner submits their own project', 'ALLOWED',
-  $$ update public.projects
-     set status = 'SUBMITTED', submitted_at = now()
-     where id = avs_test.id('n_project') $$);
+  $$ select public.submit_project(avs_test.id('n_project'),true,true,false)
+     from (select avs_test.prepare_submission(avs_test.id('n_project'))) prepared $$);
 
 do $$
 declare

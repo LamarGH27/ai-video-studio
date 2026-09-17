@@ -257,6 +257,162 @@ record 'Concurrency' 'The revision is on the record and still open while the rew
        'IN_PRODUCTION / open_revisions=1' "$ACTUAL"
 
 # -----------------------------------------------------------------------------
+# H3: final Storage row writes (including privileged signed-token completion)
+# serialise with submission in both orders. This requires two native sessions;
+# the isolated single-session SQL runner cannot execute this proof.
+psql -X -q -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
+-- H4 prerequisites for the H3 races: both drafts already have a confirmed image
+-- and affirmative consent. The race still targets Storage versus submission.
+begin;
+insert into public.projects(id,user_id,status,brief,orientation,desired_duration_seconds)
+select id::uuid, avs_test.id('customer_a'), 'DRAFT',
+       'H3 concurrency project with a sufficiently complete brief.', 'VERTICAL_9_16',15
+from (values ('93000000-0000-4000-8000-000000000021'),
+             ('93000000-0000-4000-8000-000000000022')) fixtures(id);
+select avs_test.become('customer_a');
+select avs_test.prepare_submission('93000000-0000-4000-8000-000000000021');
+select avs_test.prepare_submission('93000000-0000-4000-8000-000000000022');
+select avs_test.become_postgres();
+insert into public.project_consents(project_id,user_id,consent_type,granted,wording_version,granted_at)
+select p.id,p.user_id,c.kind::public.consent_type,true,'2026-09-15',now()
+from public.projects p cross join (values ('HAS_LIKENESS_PERMISSION'),('AI_PROCESSING_CONSENT')) c(kind)
+where p.id in ('93000000-0000-4000-8000-000000000021','93000000-0000-4000-8000-000000000022');
+commit;
+SQL
+H3_OWNER='aaaaaaaa-0000-4000-8000-00000000000a'
+H3_FIRST='93000000-0000-4000-8000-000000000021'
+H3_SECOND='93000000-0000-4000-8000-000000000022'
+a "begin;"
+a "$(attempt_sql "update public.projects set status='SUBMITTED',submitted_at=now() where id='$H3_FIRST'")"
+record 'H3 concurrency' 'Submission starts' 'ALLOWED' "$(verdict)"
+b "begin; set local role service_role; set local lock_timeout='2s';"
+b "$(attempt_sql "insert into storage.objects(bucket_id,name) values ('reference-images','$H3_OWNER/$H3_FIRST/late.jpg')")"
+record 'H3 concurrency' 'Privileged upload waits for submission' 'DENIED 55P03' "$(verdict) $(sqlstate)"
+b "rollback;"
+a "commit;"
+b "begin; set local role service_role;"
+b "$(attempt_sql "insert into storage.objects(bucket_id,name) values ('reference-images','$H3_OWNER/$H3_FIRST/late.jpg')")"
+record 'H3 concurrency' 'Privileged upload refused after submission commits' 'DENIED 42501' "$(verdict) $(sqlstate)"
+b "rollback;"
+
+a "begin; set local role service_role;"
+a "$(attempt_sql "insert into storage.objects(bucket_id,name) values ('reference-images','$H3_OWNER/$H3_SECOND/first.jpg')")"
+record 'H3 concurrency' 'Draft upload starts' 'ALLOWED' "$(verdict)"
+b "begin; set local lock_timeout='2s';"
+b "$(attempt_sql "update public.projects set status='SUBMITTED',submitted_at=now() where id='$H3_SECOND'")"
+record 'H3 concurrency' 'Submission waits for final Storage write' 'DENIED 55P03' "$(verdict) $(sqlstate)"
+b "rollback;"
+a "commit;"
+b "begin;"
+b "$(attempt_sql "update public.projects set status='SUBMITTED',submitted_at=now() where id='$H3_SECOND'")"
+record 'H3 concurrency' 'Submission succeeds after upload commits' 'ALLOWED' "$(verdict)"
+b "commit;"
+
+# H4: exercise actual lock contention, not single-session ordering.
+psql -X -q -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
+begin;
+insert into public.projects(id,user_id,status,brief,orientation,desired_duration_seconds)
+select ('94000000-0000-4000-8000-' || lpad(n::text,12,'0'))::uuid,
+       avs_test.id('customer_a'),'DRAFT','H4 complete concurrency fixture with enough detail.','VERTICAL_9_16',15
+from generate_series(101,104) n;
+select avs_test.become('customer_a');
+select avs_test.prepare_submission('94000000-0000-4000-8000-000000000101');
+select avs_test.prepare_submission('94000000-0000-4000-8000-000000000103');
+select avs_test.prepare_submission('94000000-0000-4000-8000-000000000104');
+insert into storage.objects(bucket_id,name,metadata) values
+('reference-images','aaaaaaaa-0000-4000-8000-00000000000a/94000000-0000-4000-8000-000000000102/race.jpg',
+ '{"size":100,"mimetype":"image/jpeg"}');
+select avs_test.become_postgres();
+insert into public.project_consents(project_id,user_id,consent_type,granted,wording_version,granted_at)
+values ('94000000-0000-4000-8000-000000000104',avs_test.id('customer_a'),
+        'HAS_LIKENESS_PERMISSION',false,'2026-09-15',null);
+commit;
+SQL
+
+# Duplicate submissions converge; history/outbox are not emitted twice.
+H4_PID='94000000-0000-4000-8000-000000000101'
+a "begin;"
+become a customer_a
+a "$(attempt_sql "perform public.submit_project('$H4_PID',true,true,false)")"
+record 'H4 concurrency' 'First submission starts' 'ALLOWED' "$(verdict)"
+b "begin;"
+become b customer_a
+b "set local lock_timeout='2s';"
+b "$(attempt_sql "perform public.submit_project('$H4_PID',true,true,false)")"
+record 'H4 concurrency' 'Duplicate submission waits' 'DENIED 55P03' "$(verdict) $(sqlstate)"
+b "$(attempt_sql "delete from storage.objects where bucket_id='reference-images' and name like '$H3_OWNER/$H4_PID/%'")"
+record 'H4 concurrency' 'Direct Storage deletion waits for submission' 'DENIED 55P03' "$(verdict) $(sqlstate)"
+b "rollback;"
+a "commit;"
+b "begin;"
+become b customer_a
+b "$(attempt_sql "perform public.submit_project('$H4_PID',true,true,false)")"
+record 'H4 concurrency' 'Duplicate converges after commit' 'ALLOWED' "$(verdict)"
+b "commit;"
+ACTUAL="$(psql -X -Atc "select count(*) from public.project_status_history where project_id='$H4_PID' and to_status='SUBMITTED';")"
+record 'H4 concurrency' 'Duplicate emits one transition' '1' "$ACTUAL"
+b "begin;"
+become b customer_a
+b "delete from storage.objects where bucket_id='reference-images' and name like '$H3_OWNER/$H4_PID/%';"
+b "commit;"
+ACTUAL="$(psql -X -Atc "select count(*) from storage.objects where bucket_id='reference-images' and name like '$H3_OWNER/$H4_PID/%';")"
+record 'H4 concurrency' 'Submitted reference survives Storage deletion retry' '1' "$ACTUAL"
+
+# Confirmation wins the lock; submission waits, then sees its committed asset.
+H4_PID='94000000-0000-4000-8000-000000000102'
+a "begin;"
+become a customer_a
+a "$(attempt_sql "perform public.confirm_reference_asset('$H4_PID','$H3_OWNER/$H4_PID/race.jpg','race.jpg')")"
+record 'H4 concurrency' 'Confirmation starts' 'ALLOWED' "$(verdict)"
+b "begin;"
+become b customer_a
+b "set local lock_timeout='2s';"
+b "$(attempt_sql "perform public.submit_project('$H4_PID',true,true,false)")"
+record 'H4 concurrency' 'Submission waits for confirmation' 'DENIED 55P03' "$(verdict) $(sqlstate)"
+b "rollback;"
+a "commit;"
+b "begin;"
+become b customer_a
+b "$(attempt_sql "perform public.submit_project('$H4_PID',true,true,false)")"
+record 'H4 concurrency' 'Submission sees committed confirmation' 'ALLOWED' "$(verdict)"
+b "commit;"
+
+# Deletion wins: submission must fail after seeing zero committed references.
+H4_PID='94000000-0000-4000-8000-000000000103'
+a "begin;"
+become a customer_a
+a "$(attempt_sql "delete from public.project_assets where project_id='$H4_PID'")"
+record 'H4 concurrency' 'Draft asset deletion starts' 'ALLOWED' "$(verdict)"
+b "begin;"
+become b customer_a
+b "set local lock_timeout='2s';"
+b "$(attempt_sql "perform public.submit_project('$H4_PID',true,true,false)")"
+record 'H4 concurrency' 'Submission waits for asset deletion' 'DENIED 55P03' "$(verdict) $(sqlstate)"
+b "rollback;"
+a "commit;"
+b "begin;"
+become b customer_a
+b "$(attempt_sql "perform public.submit_project('$H4_PID',true,true,false)")"
+record 'H4 concurrency' 'Submission fails after last reference is deleted' 'DENIED 23514' "$(verdict) $(sqlstate)"
+b "rollback;"
+
+# Submission wins: even a privileged consent writer cannot change its snapshot.
+# Ordinary customer consent UPDATE is already refused by RLS before this point.
+H4_PID='94000000-0000-4000-8000-000000000104'
+a "begin;"
+become a customer_a
+a "$(attempt_sql "perform public.submit_project('$H4_PID',true,true,false)")"
+record 'H4 concurrency' 'Submission records consent atomically' 'ALLOWED' "$(verdict)"
+b "begin; set local role service_role; set local lock_timeout='2s';"
+b "$(attempt_sql "update public.project_consents set granted=false,granted_at=null where project_id='$H4_PID' and consent_type='HAS_LIKENESS_PERMISSION'")"
+record 'H4 concurrency' 'Consent change waits for submission' 'DENIED 55P03' "$(verdict) $(sqlstate)"
+b "rollback;"
+a "commit;"
+b "begin; set local role service_role;"
+b "$(attempt_sql "update public.project_consents set granted=false,granted_at=null where project_id='$H4_PID' and consent_type='HAS_LIKENESS_PERMISSION'")"
+record 'H4 concurrency' 'Consent remains frozen after submission' 'DENIED 42501' "$(verdict) $(sqlstate)"
+b "rollback;"
+
 printf '\\q\n' >&3
 printf '\\q\n' >&5
 exec 3>&- 5>&-
