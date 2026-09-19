@@ -519,3 +519,4 @@ Deliberate, and documented so nobody mistakes them for finished work:
   new tab but not a different device. See `docs/architecture.md` §7.
 - Orphaned storage objects are reconciled when a draft is reopened; objects left
   by a deleted draft need the periodic sweep in `docs/architecture.md` §7.
+  <!-- trigger staging migration deployment -->

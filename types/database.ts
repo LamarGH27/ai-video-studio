@@ -397,6 +397,23 @@ export interface Database {
     };
     Views: { [_ in never]: never };
     Functions: {
+      claim_reference_orphans: {
+        Args: { p_project_id: string; p_paths: string[] };
+        Returns: string[];
+      };
+      confirm_reference_asset: {
+        Args: { p_project_id: string; p_storage_path: string; p_original_filename: string };
+        Returns: ProjectAssetRow;
+      };
+      submit_project: {
+        Args: {
+          p_project_id: string;
+          p_has_likeness_permission: boolean;
+          p_ai_processing_consent: boolean;
+          p_portfolio_permission: boolean;
+        };
+        Returns: { projectId: string; publicReference: string };
+      };
       is_admin: { Args: Record<string, never>; Returns: boolean };
       // Atomic customer decisions. Each validates auth.uid(), ownership and the
       // expected current status inside the database — see migration 000600.

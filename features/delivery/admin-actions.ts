@@ -4,6 +4,8 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
 import { requireAdmin } from '@/lib/auth/session';
+import { findConfirmedUpload } from '@/lib/data/upload-confirmation';
+import type { ProjectAssetRow } from '@/types/database';
 import { DELIVERY_UPLOAD_STATUS } from '@/lib/projects/status';
 import {
   MAX_DELIVERY_VIDEO_BYTES,
@@ -126,8 +128,9 @@ export async function requestDeliveryUploadSlotAction(
  * Records a delivery upload that has landed, then advances the project.
  *
  * As with reference images, the size and content type written to the database
- * come from Storage's own metadata, not from what the browser claimed. Anything
- * outside policy is deleted rather than left orphaned.
+ * come from Storage's own metadata, not from what the browser claimed. Objects
+ * are retained on failure: a concurrent or ambiguously acknowledged transaction
+ * may already reference them. Cleanup must establish orphanhood separately.
  *
  * The recording itself is a single database function so that creating the asset
  * and announcing it are one transaction holding one lock on the project row —
@@ -148,12 +151,13 @@ export async function confirmDeliveryUploadAction(
   const { projectId, assetType, storagePath, originalFilename } = parsed.data;
   const supabase = await createClient();
 
-  const { data: project } = await supabase
+  const { data: project, error: projectError } = await supabase
     .from('projects')
     .select('id, user_id, status')
     .eq('id', projectId)
     .maybeSingle();
 
+  if (projectError) return fail('ERROR', 'We could not check that project. Try again.');
   if (!project) {
     return fail('NOT_FOUND', 'That project no longer exists.');
   }
@@ -162,6 +166,43 @@ export async function confirmDeliveryUploadAction(
   // could ever own before going near it.
   if (!storagePath.startsWith(`${project.user_id}/${projectId}/`)) {
     return fail('FORBIDDEN', 'That upload does not belong to this project.');
+  }
+
+  const lookup = () =>
+    findConfirmedUpload(supabase, {
+      bucket: PROJECT_DELIVERIES_BUCKET,
+      path: storagePath,
+      projectId,
+      userId: project.user_id,
+      assetType,
+    });
+  const replay = async (
+    asset: ProjectAssetRow,
+  ): Promise<ActionResult<{ assetId: string; version: number; status: string }>> => {
+    // A successful preview write advances the project in the same transaction.
+    // Re-read rather than return the status observed before a lost response.
+    const { data: current, error } = await supabase
+      .from('projects')
+      .select('status')
+      .eq('id', projectId)
+      .maybeSingle();
+    if (error || !current)
+      return fail('ERROR', 'We could not check the project status. Try again.');
+    revalidatePath('/admin');
+    revalidatePath(`/admin/projects/${projectId}`);
+    revalidatePath(`/dashboard/projects/${projectId}`);
+    return ok({ assetId: asset.id, version: asset.version, status: current.status });
+  };
+
+  const existing = await lookup();
+  if (existing.kind === 'found') return replay(existing.asset);
+  if (existing.kind === 'error') return fail('ERROR', 'We could not check that upload. Try again.');
+  if (existing.kind === 'conflict')
+    return fail('CONFLICT', 'That upload is already recorded elsewhere.');
+
+  // Replays are allowed above, but a new asset must still belong to this stage.
+  if (project.status !== DELIVERY_UPLOAD_STATUS[assetType]) {
+    return fail('CONFLICT', 'The project moved on while that was uploading. Reload and try again.');
   }
 
   const { data: info, error: infoError } = await supabase.storage
@@ -175,17 +216,11 @@ export async function confirmDeliveryUploadAction(
   const actualSize = info.size ?? 0;
   const actualMimeType = info.contentType ?? '';
 
-  const removeObject = async () => {
-    await supabase.storage.from(PROJECT_DELIVERIES_BUCKET).remove([storagePath]);
-  };
-
   if (!isAcceptedDeliveryMimeType(actualMimeType)) {
-    await removeObject();
     return fail('VALIDATION', 'Delivery videos must be MP4 or WebM.');
   }
 
   if (actualSize <= 0 || actualSize > MAX_DELIVERY_VIDEO_BYTES) {
-    await removeObject();
     return fail('VALIDATION', `Each video must be ${MAX_DELIVERY_VIDEO_MB} MB or smaller.`);
   }
 
@@ -198,32 +233,38 @@ export async function confirmDeliveryUploadAction(
   //
   // The values it is given are the ones Storage reported, not the ones the
   // browser claimed, and it re-derives the owner and the version itself.
-  const { data: recorded, error } = await supabase.rpc('record_delivery_asset', {
-    p_project_id: projectId,
-    p_asset_type: assetType,
-    p_storage_path: storagePath,
-    p_mime_type: actualMimeType,
-    p_original_filename: sanitiseOriginalFilename(originalFilename),
-    p_file_size: actualSize,
-  });
+  let recorded: { assetId: string; version: number; status: string } | null = null;
+  let failureMessage = '';
+  try {
+    const { data, error } = await supabase.rpc('record_delivery_asset', {
+      p_project_id: projectId,
+      p_asset_type: assetType,
+      p_storage_path: storagePath,
+      p_mime_type: actualMimeType,
+      p_original_filename: sanitiseOriginalFilename(originalFilename),
+      p_file_size: actualSize,
+    });
+    if (!error) recorded = data;
+    failureMessage = error?.message ?? '';
+  } catch {
+    // The response can be lost after the database transaction commits.
+  }
 
-  if (error || !recorded) {
-    // Nothing was recorded, so the object is an orphan. Remove it rather than
-    // leave a video sitting in the customer's folder that no row accounts for.
-    await removeObject();
+  if (!recorded) {
+    const recovered = await lookup();
+    if (recovered.kind === 'found') return replay(recovered.asset);
+    if (recovered.kind === 'conflict')
+      return fail('CONFLICT', 'That upload is already recorded elsewhere.');
+    const workflowConflict = /in production|approved a preview/i.test(failureMessage);
     return fail(
-      'ERROR',
-      /in production|approved a preview/i.test(error?.message ?? '')
+      workflowConflict ? 'CONFLICT' : 'ERROR',
+      workflowConflict
         ? 'The project moved on while that was uploading. Reload and try again.'
         : 'We could not record that upload. Try again.',
     );
   }
 
-  const { assetId, version, status } = recorded as {
-    assetId: string;
-    version: number;
-    status: string;
-  };
+  const { assetId, version, status } = recorded;
 
   revalidatePath('/admin');
   revalidatePath(`/admin/projects/${projectId}`);
