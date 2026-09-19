@@ -125,6 +125,26 @@ function fixture(kind: Kind) {
   return { state, committed, confirm, remove, info, rpc };
 }
 
+describe('H5 replacement-preview confirmation preserves H1', () => {
+  it.each<WriteMode>(['normal', 'lost-response', 'lost-transport'])(
+    'returns the version-2 identity on %s and replay without another write',
+    async (mode) => {
+      const f = fixture('PREVIEW_VIDEO');
+      f.committed.version = 2;
+      f.state.writeMode = mode;
+      const first = await f.confirm();
+      expect(first).toMatchObject({
+        ok: true,
+        data: { assetId: f.committed.id, version: 2, status: 'PREVIEW_READY' },
+      });
+      expect(await f.confirm()).toEqual(first);
+      expect(f.state.writes).toBe(1);
+      expect(f.remove).not.toHaveBeenCalled();
+      // Database resolution is proved by native SQL tests, not simulated here.
+    },
+  );
+});
+
 beforeEach(() => vi.clearAllMocks());
 
 describe.each<Kind>(['REFERENCE_IMAGE', 'PREVIEW_VIDEO', 'FINAL_VIDEO'])(

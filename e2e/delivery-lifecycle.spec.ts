@@ -167,6 +167,16 @@ test.describe('delivery lifecycle', () => {
     await page.getByRole('button', { name: /Move to In production/ }).click();
     await expect(actionButton(page, 'Upload Preview')).toBeVisible({ timeout: 20_000 });
 
+    // H5: even the real admin action cannot announce the rejected preview.
+    await page.getByRole('button', { name: /Move to Preview ready/ }).click();
+    await expect(
+      page.getByRole('alert').filter({ hasText: 'We could not update that project.' }),
+    ).toBeVisible();
+    await pageA.reload();
+    await expect(customerRevisions.getByText('Open', { exact: true })).toBeVisible();
+    await expect(customerRevisions.getByText('Resolved', { exact: true })).toHaveCount(0);
+    await expect(customerRevisions.getByText(/Answered with a new preview/)).toHaveCount(0);
+
     await chooseDeliveryFile(page);
     await expect(stage(page, 'Waiting for customer')).toBeVisible({ timeout: 90_000 });
     await expect(previewList(page).getByText('Preview 2')).toBeVisible();
@@ -178,6 +188,8 @@ test.describe('delivery lifecycle', () => {
     await expect(pageA.getByRole('heading', { name: /Preview 2/ })).toBeVisible({
       timeout: 20_000,
     });
+    await expect(customerRevisions.getByText('Resolved', { exact: true })).toHaveCount(1);
+    await expect(customerRevisions.getByText(/Answered with a new preview/)).toHaveCount(1);
     await pageA.getByRole('button', { name: 'Approve Preview' }).click();
 
     await expect(pageA.getByRole('heading', { name: /Finalising your video/ })).toBeVisible({

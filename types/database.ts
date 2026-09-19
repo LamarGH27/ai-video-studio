@@ -113,6 +113,7 @@ export type ProjectRevisionRow = {
   project_id: string;
   user_id: string;
   preview_asset_id: string | null;
+  resolved_by_preview_asset_id: string | null;
   message: string;
   status: RevisionStatus;
   requested_at: string;
@@ -353,6 +354,13 @@ export interface Database {
           {
             foreignKeyName: 'project_revisions_preview_asset_id_fkey';
             columns: ['preview_asset_id'];
+            isOneToOne: false;
+            referencedRelation: 'project_assets';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'project_revisions_resolved_by_preview_asset_id_fkey';
+            columns: ['resolved_by_preview_asset_id'];
             isOneToOne: false;
             referencedRelation: 'project_assets';
             referencedColumns: ['id'];
