@@ -224,11 +224,11 @@ select avs_test.attempt('Notifications', 'Customer claims the queue', 'DENIED',
 
 select avs_test.attempt('Notifications', 'Customer marks a notification sent through the RPC', 'DENIED',
   $$ select public.mark_notification_sent(
-       (select id from public.notification_outbox limit 1), 'x') $$);
+       (select id from public.notification_outbox limit 1), gen_random_uuid(), 'x') $$);
 
 select avs_test.attempt('Notifications', 'Customer fails a notification out of its retry budget', 'DENIED',
   $$ select public.mark_notification_failed(
-       (select id from public.notification_outbox limit 1), 'x', true) $$);
+       (select id from public.notification_outbox limit 1), gen_random_uuid(), 'x', true) $$);
 
 select avs_test.attempt('Notifications', 'Customer requeues a notification', 'DENIED',
   $$ select public.retry_notification(
@@ -496,7 +496,7 @@ begin
   select id into v_first from avs_claim_1 order by id limit 1;
 
   -- Success is terminal.
-  perform public.mark_notification_sent(v_first, 'resend-msg-1');
+  perform public.mark_notification_sent(v_first, (select claim_token from public.notification_outbox where id = v_first), 'resend-msg-1');
   select status::text, next_attempt_at into v_status, v_next
   from public.notification_outbox where id = v_first;
 
@@ -520,7 +520,7 @@ begin
 
   -- Failure is retryable, and the delay comes from the schedule.
   select id into v_second from avs_claim_1 where id <> v_first order by id limit 1;
-  perform public.mark_notification_failed(v_second, 'Provider responded 503: upstream', false);
+  perform public.mark_notification_failed(v_second, (select claim_token from public.notification_outbox where id = v_second), 'Provider responded 503: upstream', false);
 
   select status::text, attempt_count, next_attempt_at
   into v_status, v_attempts, v_next
@@ -538,8 +538,11 @@ begin
     v_status = 'FAILED' and v_attempts = 1
       and v_next between now() + interval '50 seconds' and now() + interval '70 seconds');
 
+  update public.notification_outbox set next_attempt_at = now() where id = v_second;
+  perform public.claim_notifications(50, 300);
+
   -- A permanent failure does not wait for four more attempts to say the same thing.
-  perform public.mark_notification_failed(v_second, 'Provider responded 422: invalid address', true);
+  perform public.mark_notification_failed(v_second, (select claim_token from public.notification_outbox where id = v_second), 'Provider responded 422: invalid address', true);
   select next_attempt_at into v_next from public.notification_outbox where id = v_second;
 
   insert into avs_test.results (area, attack, expected, actual, pass) values (
@@ -574,7 +577,7 @@ begin
   for i in 1..public.notification_max_attempts() loop
     update public.notification_outbox set next_attempt_at = now() where id = v_id;
     perform public.claim_notifications(50, 300);
-    perform public.mark_notification_failed(v_id, format('Attempt %s failed', i), false);
+    perform public.mark_notification_failed(v_id, (select claim_token from public.notification_outbox where id = v_id), format('Attempt %s failed', i), false);
   end loop;
 
   select attempt_count, next_attempt_at into v_attempts, v_next

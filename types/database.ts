@@ -134,6 +134,7 @@ export type NotificationOutboxRow = {
   attempt_count: number;
   next_attempt_at: string | null;
   claimed_at: string | null;
+  claim_token: string | null;
   sent_at: string | null;
   last_error: string | null;
   provider_message_id: string | null;
@@ -446,12 +447,12 @@ export interface Database {
         Returns: NotificationOutboxRow[];
       };
       mark_notification_sent: {
-        Args: { p_id: string; p_provider_message_id: string | null };
-        Returns: undefined;
+        Args: { p_id: string; p_claim_token: string; p_provider_message_id: string | null };
+        Returns: boolean;
       };
       mark_notification_failed: {
-        Args: { p_id: string; p_error: string; p_permanent: boolean };
-        Returns: undefined;
+        Args: { p_id: string; p_claim_token: string; p_error: string; p_permanent: boolean };
+        Returns: boolean;
       };
       // Operator retry, from the admin view. Preserves the outbox row.
       retry_notification: { Args: { p_id: string }; Returns: boolean };

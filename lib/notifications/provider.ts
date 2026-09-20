@@ -17,10 +17,8 @@ export interface TransactionalEmail {
   html: string;
   text: string;
   /**
-   * The outbox dedupe key. Passed to providers that support idempotency so that
-   * a send retried after an ambiguous timeout does not become two emails — the
-   * database prevents duplicate rows, this prevents duplicate deliveries of one
-   * row.
+   * The outbox event key. Providers may deduplicate retries within a finite
+   * retention window. This is not an exactly-once inbox delivery guarantee.
    */
   idempotencyKey: string;
 }
@@ -41,7 +39,7 @@ export type SendResult =
 
 export interface EmailProvider {
   readonly name: string;
-  send(email: TransactionalEmail): Promise<SendResult>;
+  send(email: TransactionalEmail, options?: { signal?: AbortSignal }): Promise<SendResult>;
 }
 
 /**

@@ -1,3 +1,4 @@
+import { withDeadline, PROVIDER_TIMEOUT_MS } from '../deadline';
 import type { EmailProvider, SendResult, TransactionalEmail } from '../provider';
 import { isRetryableStatus, summariseProviderError } from '../provider';
 
@@ -22,27 +23,51 @@ export function createResendProvider(options: {
   return {
     name: 'resend',
 
-    async send(email: TransactionalEmail): Promise<SendResult> {
-      let response: Response;
-
+    async send(
+      email: TransactionalEmail,
+      sendOptions?: { signal?: AbortSignal },
+    ): Promise<SendResult> {
       try {
-        response = await doFetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${options.apiKey}`,
-            'Content-Type': 'application/json',
-            // Resend deduplicates on this for 24h, so an ambiguous timeout that
-            // we retry does not deliver twice.
-            'Idempotency-Key': email.idempotencyKey,
+        return await withDeadline(
+          PROVIDER_TIMEOUT_MS,
+          async (signal): Promise<SendResult> => {
+            const response = await doFetch('https://api.resend.com/emails', {
+              method: 'POST',
+              signal,
+              headers: {
+                Authorization: `Bearer ${options.apiKey}`,
+                'Content-Type': 'application/json',
+                // Resend deduplicates within its retention window; later/manual
+                // retries are not an exactly-once delivery guarantee.
+                'Idempotency-Key': email.idempotencyKey,
+              },
+              body: JSON.stringify({
+                from: options.from,
+                to: [email.to],
+                subject: email.subject,
+                html: email.html,
+                text: email.text,
+              }),
+            });
+
+            if (response.ok) {
+              const body = await response.json().catch(() => null);
+              const id =
+                body && typeof body === 'object' && 'id' in body
+                  ? String((body as { id: unknown }).id)
+                  : null;
+              return { ok: true, id };
+            }
+
+            const body = await response.text().catch(() => '');
+            return {
+              ok: false,
+              permanent: !isRetryableStatus(response.status),
+              message: summariseProviderError(response.status, body),
+            };
           },
-          body: JSON.stringify({
-            from: options.from,
-            to: [email.to],
-            subject: email.subject,
-            html: email.html,
-            text: email.text,
-          }),
-        });
+          sendOptions?.signal,
+        );
       } catch (error) {
         // DNS failure, TLS failure, timeout — the request may or may not have
         // arrived, which is exactly what the idempotency key is for.
@@ -52,22 +77,6 @@ export function createResendProvider(options: {
           message: summariseProviderError(null, error instanceof Error ? error.message : ''),
         };
       }
-
-      if (response.ok) {
-        const body = await response.json().catch(() => null);
-        const id =
-          body && typeof body === 'object' && 'id' in body
-            ? String((body as { id: unknown }).id)
-            : null;
-        return { ok: true, id };
-      }
-
-      const body = await response.text().catch(() => '');
-      return {
-        ok: false,
-        permanent: !isRetryableStatus(response.status),
-        message: summariseProviderError(response.status, body),
-      };
     },
   };
 }

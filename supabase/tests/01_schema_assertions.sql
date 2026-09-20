@@ -157,8 +157,8 @@ select avs_test.expect('Notifications',
    from (values
      ('public.enqueue_notification(public.notification_event_type, public.notification_recipient, uuid, text, jsonb)'),
      ('public.claim_notifications(integer, integer)'),
-     ('public.mark_notification_sent(uuid, text)'),
-     ('public.mark_notification_failed(uuid, text, boolean)')
+     ('public.mark_notification_sent(uuid, uuid, text)'),
+     ('public.mark_notification_failed(uuid, uuid, text, boolean)')
    ) as f(signature)
    cross join (values ('anon'), ('authenticated')) as r(role_name)
    where has_function_privilege(r.role_name, f.signature, 'EXECUTE')));
@@ -169,8 +169,8 @@ select avs_test.expect('Notifications', 'The worker operations are executable by
   (select count(*)::text
    from (values
      ('public.claim_notifications(integer, integer)'),
-     ('public.mark_notification_sent(uuid, text)'),
-     ('public.mark_notification_failed(uuid, text, boolean)')
+     ('public.mark_notification_sent(uuid, uuid, text)'),
+     ('public.mark_notification_failed(uuid, uuid, text, boolean)')
    ) as f(signature)
    where has_function_privilege('service_role', f.signature, 'EXECUTE')));
 
