@@ -72,8 +72,8 @@ export async function listReferenceImages(projectId: string): Promise<ProjectAss
  * Grace period before an unreferenced storage object is considered abandoned.
  *
  * An upload that has landed but whose confirmUploadAction is still in flight is
- * momentarily indistinguishable from an orphan. An hour is far longer than that
- * window and short enough that nothing lingers.
+ * momentarily indistinguishable from an orphan. Recent objects are never cleanup
+ * candidates; older candidates require a durable database claim before deletion.
  */
 const ORPHAN_GRACE_MS = 60 * 60 * 1000;
 
@@ -99,6 +99,8 @@ const ORPHAN_GRACE_MS = 60 * 60 * 1000;
  * Safety: this runs as the signed-in customer, so storage RLS confines it to
  * their own folder. It cannot touch another customer's media even if the
  * arguments were wrong. Objects inside the grace window are always left alone.
+ * The claim RPC serializes with confirmation and permanently retires claimed
+ * paths. Failed/ambiguous Storage deletion must never release that claim.
  */
 export async function reconcileOrphanedReferenceImages(
   userId: string,
@@ -113,13 +115,26 @@ export async function reconcileOrphanedReferenceImages(
 
   if (error || !objects || objects.length === 0) return 0;
 
-  const { data: rows } = await supabase
-    .from('project_assets')
-    .select('storage_path')
-    .eq('project_id', projectId)
-    .eq('user_id', userId);
+  const readTracked = async () => {
+    try {
+      const { data, error: lookupError } = await supabase
+        .from('project_assets')
+        .select('storage_path')
+        .eq('project_id', projectId)
+        .eq('user_id', userId);
+      if (lookupError || !data) {
+        console.error('[reference-cleanup] Asset lookup failed; cleanup skipped.', { projectId });
+        return null;
+      }
+      return new Set(data.map((row) => row.storage_path));
+    } catch {
+      console.error('[reference-cleanup] Asset lookup failed; cleanup skipped.', { projectId });
+      return null;
+    }
+  };
 
-  const tracked = new Set((rows ?? []).map((row) => row.storage_path));
+  const tracked = await readTracked();
+  if (!tracked) return 0;
   const cutoff = Date.now() - ORPHAN_GRACE_MS;
 
   const orphans = objects
@@ -133,9 +148,32 @@ export async function reconcileOrphanedReferenceImages(
 
   if (orphans.length === 0) return 0;
 
-  const { error: removeError } = await supabase.storage
-    .from(REFERENCE_IMAGES_BUCKET)
-    .remove(orphans);
-
-  return removeError ? 0 : orphans.length;
+  try {
+    // Only a committed claim authorizes deletion. The RPC rechecks ownership,
+    // state, age and asset absence under confirmation's project-row lock.
+    const { data: claimed, error: claimError } = await supabase.rpc('claim_reference_orphans', {
+      p_project_id: projectId,
+      p_paths: orphans,
+    });
+    if (claimError || !claimed) {
+      console.error('[reference-cleanup] Claim failed; cleanup skipped.', { projectId });
+      return 0;
+    }
+    if (claimed.length === 0) return 0;
+    const { error: removeError } = await supabase.storage
+      .from(REFERENCE_IMAGES_BUCKET)
+      .remove(claimed);
+    if (removeError) {
+      console.error('[reference-cleanup] Storage deletion failed; claims retained.', { projectId });
+      return 0;
+    }
+    return claimed.length;
+  } catch {
+    // An uncertain claim response authorizes no deletion. An uncertain Storage
+    // response leaves the committed claim intact, so a retry remains safe.
+    console.error('[reference-cleanup] Cleanup interrupted; claims retained if committed.', {
+      projectId,
+    });
+    return 0;
+  }
 }

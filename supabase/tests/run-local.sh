@@ -179,7 +179,7 @@ done
 say "Loading fixtures"
 psql -q -v ON_ERROR_STOP=1 -f "$REPO_ROOT/supabase/tests/harness/01_fixtures.sql" >/dev/null
 
-for suite in "$REPO_ROOT"/supabase/tests/0[1-9]_*.sql; do
+for suite in "$REPO_ROOT"/supabase/tests/[0-9][0-9]_*.sql; do
   say "Running $(basename "$suite")"
   psql -q -v ON_ERROR_STOP=1 -f "$suite" >/dev/null
 done
@@ -190,6 +190,14 @@ for script in "$REPO_ROOT"/supabase/tests/concurrency/*.sh; do
   # avs_test.results, so its assertions are counted with all the others.
   "$script"
 done
+
+# H2 uses independent native connections through the test-only pg driver.
+# npm ci must precede this runner, as for the application test suites.
+node "$REPO_ROOT/supabase/tests/concurrency/02_reference_orphan_claims.mjs"
+node "$REPO_ROOT/supabase/tests/concurrency/03_revision_resolution.mjs"
+node "$REPO_ROOT/supabase/tests/concurrency/04_notification_claims.mjs"
+
+node "$REPO_ROOT/supabase/tests/concurrency/05_operator_erasure.mjs"
 
 say "RESULTS"
 psql -X -P pager=off -c "

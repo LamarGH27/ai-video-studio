@@ -113,6 +113,7 @@ export type ProjectRevisionRow = {
   project_id: string;
   user_id: string;
   preview_asset_id: string | null;
+  resolved_by_preview_asset_id: string | null;
   message: string;
   status: RevisionStatus;
   requested_at: string;
@@ -133,6 +134,7 @@ export type NotificationOutboxRow = {
   attempt_count: number;
   next_attempt_at: string | null;
   claimed_at: string | null;
+  claim_token: string | null;
   sent_at: string | null;
   last_error: string | null;
   provider_message_id: string | null;
@@ -357,6 +359,13 @@ export interface Database {
             referencedRelation: 'project_assets';
             referencedColumns: ['id'];
           },
+          {
+            foreignKeyName: 'project_revisions_resolved_by_preview_asset_id_fkey';
+            columns: ['resolved_by_preview_asset_id'];
+            isOneToOne: false;
+            referencedRelation: 'project_assets';
+            referencedColumns: ['id'];
+          },
         ];
       };
       project_preview_approvals: {
@@ -397,6 +406,23 @@ export interface Database {
     };
     Views: { [_ in never]: never };
     Functions: {
+      claim_reference_orphans: {
+        Args: { p_project_id: string; p_paths: string[] };
+        Returns: string[];
+      };
+      confirm_reference_asset: {
+        Args: { p_project_id: string; p_storage_path: string; p_original_filename: string };
+        Returns: ProjectAssetRow;
+      };
+      submit_project: {
+        Args: {
+          p_project_id: string;
+          p_has_likeness_permission: boolean;
+          p_ai_processing_consent: boolean;
+          p_portfolio_permission: boolean;
+        };
+        Returns: { projectId: string; publicReference: string };
+      };
       is_admin: { Args: Record<string, never>; Returns: boolean };
       // Atomic customer decisions. Each validates auth.uid(), ownership and the
       // expected current status inside the database — see migration 000600.
@@ -421,12 +447,12 @@ export interface Database {
         Returns: NotificationOutboxRow[];
       };
       mark_notification_sent: {
-        Args: { p_id: string; p_provider_message_id: string | null };
-        Returns: undefined;
+        Args: { p_id: string; p_claim_token: string; p_provider_message_id: string | null };
+        Returns: boolean;
       };
       mark_notification_failed: {
-        Args: { p_id: string; p_error: string; p_permanent: boolean };
-        Returns: undefined;
+        Args: { p_id: string; p_claim_token: string; p_error: string; p_permanent: boolean };
+        Returns: boolean;
       };
       // Operator retry, from the admin view. Preserves the outbox row.
       retry_notification: { Args: { p_id: string }; Returns: boolean };

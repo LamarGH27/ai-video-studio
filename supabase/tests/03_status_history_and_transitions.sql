@@ -15,12 +15,7 @@ begin;
 select avs_test.become('customer_a');
 
 select avs_test.attempt('Transition', 'Customer submits own draft (DRAFT→SUBMITTED)', 'ALLOWED',
-  $$ update public.projects
-     set status = 'SUBMITTED',
-         submitted_at = now(),
-         brief = 'A complete brief that satisfies the submitted-completeness constraint.',
-         orientation = 'VERTICAL_9_16'
-     where id = avs_test.id('a_draft') $$);
+  $$ select public.submit_project(avs_test.id('a_draft'),true,true,false) $$);
 
 -- The history row must exist even though `authenticated` cannot insert into that
 -- table itself — that is the whole point of the SECURITY DEFINER trigger.
@@ -126,10 +121,9 @@ select avs_test.attempt('Transition', 'Admin reopens a COMPLETED project (final 
 do $$
 declare
   path     text;
-  -- a_submitted is seeded directly as SUBMITTED, so its creation row is
-  -- NULL>SUBMITTED. The DRAFT>SUBMITTED transition is asserted separately above,
-  -- on a_draft, which is the project a customer actually submits.
-  expected text := 'NULL>SUBMITTED, SUBMITTED>ASSETS_REVIEW, '
+  -- Fixtures now upload reference objects while DRAFT, then submit. Include
+  -- both transitions in the expected audit trail.
+  expected text := 'NULL>DRAFT, DRAFT>SUBMITTED, SUBMITTED>ASSETS_REVIEW, '
                 || 'ASSETS_REVIEW>IN_PRODUCTION, IN_PRODUCTION>PREVIEW_READY, '
                 || 'PREVIEW_READY>FINALISING, FINALISING>COMPLETED';
   ok boolean;

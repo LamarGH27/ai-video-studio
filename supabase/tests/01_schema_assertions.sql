@@ -113,7 +113,7 @@ select avs_test.expect('Functions', 'Every public function pins search_path', '0
 select avs_test.expect('Functions', 'is_admin() is not executable by PUBLIC', 'false',
   (select has_function_privilege('public', 'public.is_admin()', 'EXECUTE')::text));
 
-select avs_test.expect('Triggers', 'All expected triggers exist', '21',
+select avs_test.expect('Triggers', 'All expected triggers exist', '22',
   (select count(*)::text from pg_trigger t
    join pg_class c on c.oid = t.tgrelid
    where not t.tgisinternal
@@ -125,7 +125,7 @@ select avs_test.expect('Triggers', 'All expected triggers exist', '21',
                       'projects_record_status_change','portfolio_items_set_updated_at',
                       'projects_enforce_status_transition',
                       'project_assets_01_delivery_status','project_assets_02_assign_version',
-                      'projects_resolve_revisions',
+                      'project_assets_resolve_revisions','projects_require_revision_replacement',
                       'project_revisions_set_updated_at','project_revisions_enforce_owner',
                       'project_preview_approvals_enforce_owner',
                       'projects_notify_status_change','project_revisions_notify',
@@ -157,8 +157,8 @@ select avs_test.expect('Notifications',
    from (values
      ('public.enqueue_notification(public.notification_event_type, public.notification_recipient, uuid, text, jsonb)'),
      ('public.claim_notifications(integer, integer)'),
-     ('public.mark_notification_sent(uuid, text)'),
-     ('public.mark_notification_failed(uuid, text, boolean)')
+     ('public.mark_notification_sent(uuid, uuid, text)'),
+     ('public.mark_notification_failed(uuid, uuid, text, boolean)')
    ) as f(signature)
    cross join (values ('anon'), ('authenticated')) as r(role_name)
    where has_function_privilege(r.role_name, f.signature, 'EXECUTE')));
@@ -169,8 +169,8 @@ select avs_test.expect('Notifications', 'The worker operations are executable by
   (select count(*)::text
    from (values
      ('public.claim_notifications(integer, integer)'),
-     ('public.mark_notification_sent(uuid, text)'),
-     ('public.mark_notification_failed(uuid, text, boolean)')
+     ('public.mark_notification_sent(uuid, uuid, text)'),
+     ('public.mark_notification_failed(uuid, uuid, text, boolean)')
    ) as f(signature)
    where has_function_privilege('service_role', f.signature, 'EXECUTE')));
 

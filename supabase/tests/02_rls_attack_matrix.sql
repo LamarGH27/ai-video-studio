@@ -195,12 +195,9 @@ select avs_test.attempt('A legitimate', 'EDIT own draft project', 'ALLOWED',
   $$ update public.projects set mood = 'Confident' where id = avs_test.id('a_draft') $$);
 
 select avs_test.attempt('A legitimate', 'ADD reference image to own draft', 'ALLOWED',
-  $$ insert into public.project_assets
-       (project_id, user_id, asset_type, storage_bucket, storage_path, mime_type, file_size)
-     values (avs_test.id('a_draft'), avs_test.id('customer_a'), 'REFERENCE_IMAGE',
-             'reference-images', 'a/ok.jpg', 'image/jpeg', 100) $$);
+  $$ select avs_test.prepare_submission(avs_test.id('a_draft')) $$);
 
-select avs_test.attempt('A legitimate', 'RECORD consent on own draft', 'ALLOWED',
+select avs_test.attempt('A legitimate', 'Direct consent write requires submission RPC', 'DENIED',
   $$ insert into public.project_consents
        (project_id, user_id, consent_type, granted, wording_version, granted_at)
      values (avs_test.id('a_draft'), avs_test.id('customer_a'),
