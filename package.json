@@ -18,7 +18,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "verify:db": "supabase/tests/run-local.sh",
-    "verify:live": "node --experimental-strip-types scripts/verify-live.ts"
+    "verify:live": "node --experimental-strip-types scripts/verify-live.ts",
+    "test:erasure": "node --test scripts/operator-erasure.test.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "5.9.1",

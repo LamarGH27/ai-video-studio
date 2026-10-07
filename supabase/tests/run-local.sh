@@ -197,6 +197,8 @@ node "$REPO_ROOT/supabase/tests/concurrency/02_reference_orphan_claims.mjs"
 node "$REPO_ROOT/supabase/tests/concurrency/03_revision_resolution.mjs"
 node "$REPO_ROOT/supabase/tests/concurrency/04_notification_claims.mjs"
 
+node "$REPO_ROOT/supabase/tests/concurrency/05_operator_erasure.mjs"
+
 say "RESULTS"
 psql -X -P pager=off -c "
   select area as \"Area\",
