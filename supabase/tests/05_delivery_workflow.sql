@@ -499,17 +499,12 @@ select avs_test.attempt('Invariants', 'COMPLETED without a final video', 'DENIED
   $$ update public.projects set status = 'COMPLETED'
      where id = avs_test.id('a_production') $$);
 
+insert into storage.objects(bucket_id,name,metadata) values('project-deliveries','aaaaaaaa-0000-4000-8000-00000000000a/77777777-0000-4000-8000-000000000007/final-v1.mp4',jsonb_build_object('size',9000000,'mimetype','video/mp4'));
 select avs_test.attempt('Delivery writes', 'Admin creates a FINAL_VIDEO', 'ALLOWED',
-  $$ insert into public.project_assets
-       (project_id, user_id, asset_type, storage_bucket, storage_path, mime_type, file_size)
-     values (avs_test.id('a_production'), avs_test.id('customer_a'), 'FINAL_VIDEO',
-             'project-deliveries',
-             'aaaaaaaa-0000-4000-8000-00000000000a/77777777-0000-4000-8000-000000000007/final-v1.mp4',
-             'video/mp4', 9000000) $$);
+  $$ select public.record_delivery_asset(avs_test.id('a_production'),'FINAL_VIDEO','aaaaaaaa-0000-4000-8000-00000000000a/77777777-0000-4000-8000-000000000007/final-v1.mp4','video/mp4','final.mp4',9000000) $$);
 
-select avs_test.attempt('Invariants', 'COMPLETED once a final exists', 'ALLOWED',
-  $$ update public.projects set status = 'COMPLETED'
-     where id = avs_test.id('a_production') $$);
+select avs_test.attempt('Invariants', 'Authoritative release completes the project', 'ALLOWED',
+  $$ select public.release_final_video(avs_test.id('a_production'),(select id from public.project_assets where project_id=avs_test.id('a_production') and asset_type='FINAL_VIDEO' order by version desc limit 1)) $$);
 
 select avs_test.attempt('Invariants', 'Reopening a COMPLETED project', 'DENIED',
   $$ update public.projects set status = 'IN_PRODUCTION'
@@ -578,6 +573,7 @@ values
 on conflict (bucket_id, name) do nothing;
 
 select avs_test.become('customer_a');
+select set_config('storage.operation','storage.object.get_authenticated',true);
 select avs_test.attempt('Delivery storage', 'Owner reads their own delivery object', 'ALLOWED',
   $$ select * from storage.objects
      where bucket_id = 'project-deliveries'
@@ -714,6 +710,7 @@ select avs_test.attempt('Delivery stage', 'Owner approves the recorded preview',
 
 select avs_test.become('admin');
 
+insert into storage.objects(bucket_id,name,metadata) values('project-deliveries','bbbbbbbb-0000-4000-8000-00000000000b/99999999-0000-4000-8000-000000000009/final-v1.mp4',jsonb_build_object('size',9000000,'mimetype','video/mp4'));
 select avs_test.attempt('Delivery stage', 'Admin records a FINAL_VIDEO while FINALISING', 'ALLOWED',
   $$ select public.record_delivery_asset(
        avs_test.id('b_rpc'), 'FINAL_VIDEO',

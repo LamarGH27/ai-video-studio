@@ -1,3 +1,4 @@
+import { FinalReleaseControl } from '@/features/delivery/final-release-control';
 import { Alert } from '@/components/ui/alert';
 import { DeliveryUploader } from '@/features/delivery/delivery-uploader';
 import { StatusControl } from '@/features/admin/status-control';
@@ -22,13 +23,17 @@ export function NextActionPanel({
   projectId,
   status,
   deliveries,
+  finalAsset,
 }: {
   projectId: string;
   status: ProjectStatus;
   deliveries: DeliveryPresence;
+  finalAsset?: { id: string; version: number } | null;
 }) {
   const action = nextAdminAction(status);
-  const transitions = allowedAdminTransitions(status, deliveries);
+  const transitions = allowedAdminTransitions(status, deliveries).filter(
+    (next) => next !== 'COMPLETED',
+  );
 
   return (
     <section aria-labelledby="next-action-heading" className="space-y-5">
@@ -56,13 +61,17 @@ export function NextActionPanel({
                 hint={
                   action.upload === 'PREVIEW_VIDEO'
                     ? 'The customer is notified by the project moving to Preview ready.'
-                    : 'Upload the final cut, then mark the project completed.'
+                    : 'Upload and review the final cut, then release that exact video.'
                 }
               />
             </div>
           ) : null}
         </div>
       )}
+
+      {status === 'FINALISING' && finalAsset ? (
+        <FinalReleaseControl projectId={projectId} asset={finalAsset} />
+      ) : null}
 
       <div>
         <h3 className="text-[0.65rem] tracking-[0.2em] text-bone-500 uppercase">

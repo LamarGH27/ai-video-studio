@@ -223,6 +223,7 @@ export default async function AdminProjectPage({ params }: { params: Promise<{ i
               a final video exists, and offering it anyway produces a button
               that can only fail. */}
           <NextActionPanel
+            finalAsset={deliveries.find((asset) => asset.assetType === 'FINAL_VIDEO') ?? null}
             projectId={project.id}
             status={project.status}
             deliveries={{ hasPreview: previews.length > 0, hasFinal: finals.length > 0 }}

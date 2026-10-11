@@ -92,6 +92,13 @@ export async function authoriseDeliveryAsset(
   if (asset.project_id !== project.id) return null;
   if (asset.user_id !== project.user_id) return null;
 
+  if (asset.asset_type === 'FINAL_VIDEO' && !isAdmin) {
+    if (project.status !== 'COMPLETED') return null;
+    const { data: released, error } = await supabase.rpc('is_released_final', {
+      p_asset_id: asset.id,
+    });
+    if (error || released !== true) return null;
+  }
   return { asset, project, isOwner, isAdmin };
 }
 
@@ -103,9 +110,16 @@ export async function authoriseDeliveryAsset(
  * customer's "Download Final Video" into a download rather than a navigation.
  */
 export async function signDeliveryAsset(
-  asset: Pick<ProjectAssetRow, 'storage_bucket' | 'storage_path'>,
+  asset: Pick<ProjectAssetRow, 'id' | 'asset_type' | 'storage_bucket' | 'storage_path'>,
   options: { downloadAs?: string } = {},
 ): Promise<string | null> {
+  const authorised = await authoriseDeliveryAsset(asset.id);
+  if (!authorised || authorised.asset.asset_type !== 'PREVIEW_VIDEO') return null;
+  if (
+    authorised.asset.storage_bucket !== asset.storage_bucket ||
+    authorised.asset.storage_path !== asset.storage_path
+  )
+    return null;
   const supabase = await createClient();
 
   const { data, error } = await supabase.storage

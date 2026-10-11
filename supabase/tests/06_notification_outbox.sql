@@ -420,6 +420,7 @@ select avs_test.attempt('Notifications', 'Customer approves Preview 2', 'ALLOWED
 
 select avs_test.become('admin');
 
+insert into storage.objects(bucket_id,name,metadata) values('project-deliveries','aaaaaaaa-0000-4000-8000-00000000000a/dddddddd-0000-4000-8000-00000000000d/final-v1.mp4',jsonb_build_object('size',9000000,'mimetype','video/mp4'));
 select avs_test.attempt('Notifications', 'Admin uploads the final video', 'ALLOWED',
   $$ select public.record_delivery_asset(
        avs_test.id('n_project'), 'FINAL_VIDEO',
@@ -427,8 +428,7 @@ select avs_test.attempt('Notifications', 'Admin uploads the final video', 'ALLOW
        'video/mp4', 'final.mp4', 9000000) $$);
 
 select avs_test.attempt('Notifications', 'Admin completes the project', 'ALLOWED',
-  $$ update public.projects set status = 'COMPLETED'
-     where id = avs_test.id('n_project') $$);
+  $$ select public.release_final_video(avs_test.id('n_project'),(select id from public.project_assets where project_id=avs_test.id('n_project') and asset_type='FINAL_VIDEO')) $$);
 
 do $$
 declare v_events text; expected text; ok boolean;

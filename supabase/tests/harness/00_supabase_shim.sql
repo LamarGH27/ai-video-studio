@@ -171,3 +171,11 @@ alter default privileges in schema public
   grant all on functions to anon, authenticated, service_role;
 alter default privileges in schema public
   grant all on sequences to anon, authenticated, service_role;
+
+-- Storage operation context shim: hosted tests must also exercise real HTTP operations.
+create function storage.allow_only_operation(want text) returns boolean language sql stable as $$
+ select coalesce(replace(current_setting('storage.operation',true),'storage.','')=replace(want,'storage.',''),false)
+$$;
+create function storage.allow_any_operation(want text[]) returns boolean language sql stable as $$
+ select exists(select 1 from unnest(want) op where storage.allow_only_operation(op))
+$$;

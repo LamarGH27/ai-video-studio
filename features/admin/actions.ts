@@ -34,6 +34,8 @@ export async function updateProjectStatusAction(input: {
   }
 
   const { projectId, status } = parsed.data;
+  if (status === 'COMPLETED')
+    return fail('CONFLICT', 'Release a specific confirmed final video to complete the project.');
   const supabase = await createClient();
 
   const { data: project } = await supabase

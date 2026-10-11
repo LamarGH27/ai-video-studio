@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { authoriseDeliveryAsset, signDeliveryAsset } from '@/lib/data/deliveries';
+import { downloadFinal } from '@/lib/data/final-download';
 import { sanitiseOriginalFilename } from '@/lib/storage/paths';
 
 /**
@@ -31,6 +32,29 @@ export async function GET(request: NextRequest, context: { params: Promise<{ ass
   const wantsDownload = request.nextUrl.searchParams.get('download') === '1';
   const kind = authorised.asset.asset_type === 'FINAL_VIDEO' ? 'final' : 'preview';
   const extension = authorised.asset.mime_type === 'video/webm' ? 'webm' : 'mp4';
+
+  if (authorised.asset.asset_type === 'FINAL_VIDEO') {
+    const response = await downloadFinal(
+      assetId,
+      request.headers.get('range'),
+      wantsDownload
+        ? sanitiseOriginalFilename(
+            authorised.project.public_reference +
+              '-final-v' +
+              authorised.asset.version +
+              '.' +
+              extension,
+          )
+        : undefined,
+    );
+    return (
+      response ??
+      new NextResponse('Not found', {
+        status: 404,
+        headers: { 'Cache-Control': 'private, no-store' },
+      })
+    );
+  }
 
   const signedUrl = await signDeliveryAsset(authorised.asset, {
     ...(wantsDownload

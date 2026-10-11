@@ -202,6 +202,12 @@ try {
   ];
   async function prepareOperation(label, state) {
     const f = await fixture(state);
+    if (label === 'final upload') {
+      await db.query(
+        "insert into storage.objects(bucket_id,name,metadata) values('project-deliveries',$1,jsonb_build_object('mimetype','video/mp4','size',1000))",
+        [owner + '/' + f.id + '/final.mp4'],
+      );
+    }
     if (label === 'submission') {
       await begin(a, 'customer_a');
       await a.query("select public.confirm_reference_asset($1,$2,'ref.jpg')", [f.id, f.path]);

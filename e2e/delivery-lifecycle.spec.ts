@@ -218,10 +218,11 @@ test.describe('delivery lifecycle', () => {
     // project with nothing to deliver, which it refuses.
     await expect(finalList(page).getByText('Final 1')).toBeVisible({ timeout: 90_000 });
 
-    // Only now is the transition actually available. It is offered *because*
-    // the final exists — see allowedAdminTransitions() — so this assertion is
-    // also what proves the control is not offered prematurely.
-    const completeButton = page.getByRole('button', { name: /Move to Completed/ });
+    // A recorded final remains private until the explicit release commits.
+    await pageA.goto(projectUrl);
+    await expect(pageA.getByRole('link', { name: /Download Final Video/ })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /Move to Completed/ })).toHaveCount(0);
+    const completeButton = page.getByRole('button', { name: 'Release Final 1', exact: true });
     await expect(completeButton).toBeVisible();
     await completeButton.click();
     await expect(
@@ -281,10 +282,12 @@ test.describe('delivery lifecycle', () => {
     // publicly reachable object.
     const href = (await downloadLink.getAttribute('href')) ?? '';
     const download = await pageA.request.get(href, { maxRedirects: 0 });
-    expect(download.status(), 'the download route must redirect to a signed URL').toBe(302);
-    const signed = download.headers()['location'] ?? '';
-    expect(signed).toContain('token=');
-    expect(signed).not.toContain('/object/public/');
+    expect(download.status(), 'the exact released final must stream through authorization').toBe(
+      200,
+    );
+    expect(download.headers()['location']).toBeUndefined();
+    expect(download.headers()['content-type']).toContain('video/mp4');
+    expect(await download.body()).toEqual(tinyMp4());
     expect(download.headers()['cache-control']).toContain('no-store');
 
     // The whole journey is on the record.

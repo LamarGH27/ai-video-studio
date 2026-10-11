@@ -406,6 +406,12 @@ export interface Database {
     };
     Views: { [_ in never]: never };
     Functions: {
+      release_final_video: {
+        Args: { p_project_id: string; p_asset_id: string };
+        Returns: { assetId: string; status: string };
+      };
+      is_released_final: { Args: { p_asset_id: string }; Returns: boolean };
+
       claim_reference_orphans: {
         Args: { p_project_id: string; p_paths: string[] };
         Returns: string[];

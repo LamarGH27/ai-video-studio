@@ -272,3 +272,27 @@ export async function confirmDeliveryUploadAction(
 
   return ok({ assetId, version, status });
 }
+
+/** Release the exact final the administrator reviewed; never select latest server-side. */
+export async function releaseFinalVideoAction(input: {
+  projectId: string;
+  assetId: string;
+}): Promise<ActionResult<{ assetId: string }>> {
+  await requireAdmin();
+  const parsed = z.object({ projectId: z.uuid(), assetId: z.uuid() }).safeParse(input);
+  if (!parsed.success) return fail('VALIDATION', 'Choose a valid final video.');
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('release_final_video', {
+    p_project_id: parsed.data.projectId,
+    p_asset_id: parsed.data.assetId,
+  });
+  if (error || !data)
+    return fail(
+      'CONFLICT',
+      'That final could not be released. Reload and review the current final.',
+    );
+  revalidatePath('/admin/projects/' + parsed.data.projectId);
+  revalidatePath('/dashboard/projects/' + parsed.data.projectId);
+  revalidatePath('/dashboard');
+  return ok({ assetId: data.assetId });
+}
