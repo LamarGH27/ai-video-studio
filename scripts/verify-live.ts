@@ -13,6 +13,8 @@
  * This script covers those. It makes real network calls and writes real rows.
  *
  *   POINT IT AT A NON-PRODUCTION PROJECT. It creates and deletes data.
+ *   H3 retains one submitted project/reference for operator inspection; it also
+ *   creates submission outbox entries. Keep notification workers off during testing.
  *
  * Usage:
  *   node --experimental-strip-types scripts/verify-live.ts
@@ -722,10 +724,250 @@ async function main() {
   );
 
   // -------------------------------------------------------------------------
-  // Clean up what this run created
+  // H3: exercise real Storage bytes, including tokens issued BEFORE submission.
+  // Failed fixture setup throws: absent objects must never make denials pass.
   // -------------------------------------------------------------------------
-  await a.storage.from(BUCKET).remove([aObjectPath]);
-  await a.from('projects').delete().eq('id', aDraft.id);
+  const reference = a.storage.from(BUCKET);
+  const draftProbePath = `${aUser.id}/${aDraft.id}/h3-draft.jpg`;
+  const requireSuccess = (error: { message: string } | null) => {
+    if (error) throw new Error(`H3 fixture failed: ${error.message}`);
+  };
+  requireSuccess(
+    (await reference.upload(draftProbePath, jpeg, { contentType: 'image/jpeg' })).error,
+  );
+  requireSuccess(
+    (await reference.upload(draftProbePath, jpeg, { contentType: 'image/jpeg', upsert: true }))
+      .error,
+  );
+  requireSuccess((await reference.remove([draftProbePath])).error);
+  const draftListing = await reference.list(`${aUser.id}/${aDraft.id}`);
+  requireSuccess(draftListing.error);
+  record(
+    'H3 draft',
+    'Owner uploads, replaces and deletes draft reference',
+    'ALLOWED',
+    draftListing.data?.some((object) => object.name === 'h3-draft.jpg')
+      ? 'DENIED (object remains)'
+      : 'ALLOWED',
+  );
+
+  for (const invalidPath of [
+    `${aUser.id}/${crypto.randomUUID()}/missing.jpg`,
+    `${aUser.id}/${bDraft.id}/foreign-project.jpg`,
+    `${aUser.id}/not-a-project/malformed.jpg`,
+    `${aUser.id}/${aDraft.id}/nested/malformed.jpg`,
+  ]) {
+    await probe('H3 invalid path', invalidPath, 'DENIED', async () => {
+      const result = await reference.upload(invalidPath, jpeg, { contentType: 'image/jpeg' });
+      return result.error ? `DENIED (${result.error.message})` : 'ALLOWED';
+    });
+  }
+
+  const before = await reference.download(aObjectPath);
+  requireSuccess(before.error);
+  if (!before.data) throw new Error('H3 fixture reference is absent');
+  const originalBytes = Buffer.from(await before.data.arrayBuffer());
+  const latePath = `${aUser.id}/${aDraft.id}/h3-late.jpg`;
+  const lateSlot = await reference.createSignedUploadUrl(latePath);
+  const replaceSlot = await reference.createSignedUploadUrl(aObjectPath, { upsert: true });
+  requireSuccess(lateSlot.error);
+  requireSuccess(replaceSlot.error);
+  if (!lateSlot.data || !replaceSlot.data) throw new Error('H3 fixture tokens are absent');
+
+  const completeBrief = await a
+    .from('projects')
+    .update({
+      brief: 'H3 live Storage verification project with a complete brief.',
+      orientation: 'VERTICAL_9_16',
+      desired_duration_seconds: 15,
+    })
+    .eq('id', aDraft.id)
+    .select('id')
+    .single();
+  requireSuccess(completeBrief.error);
+  const submissionArgs = {
+    p_project_id: aDraft.id,
+    p_has_likeness_permission: true,
+    p_ai_processing_consent: true,
+    p_portfolio_permission: false,
+  };
+  const deniedH4 = async (
+    label: string,
+    operation: () => PromiseLike<{ error: { code?: string; message: string } | null }>,
+  ) => {
+    const result = await operation();
+    record(
+      'H4 submission',
+      label,
+      'DENIED',
+      result.error && ['23514', '42501'].includes(result.error.code ?? '')
+        ? `DENIED (${result.error.code})`
+        : `ALLOWED or unexpected error (${result.error?.message ?? 'success'})`,
+    );
+  };
+  await deniedH4('Direct status update without prerequisites', () =>
+    a
+      .from('projects')
+      .update({ status: 'SUBMITTED', submitted_at: new Date().toISOString() })
+      .eq('id', aDraft.id),
+  );
+  await deniedH4('Storage object without confirmed asset', () =>
+    a.rpc('submit_project', submissionArgs),
+  );
+  await deniedH4('Another customer cannot submit', () => b.rpc('submit_project', submissionArgs));
+  await deniedH4('False mandatory consent', () =>
+    a.rpc('submit_project', { ...submissionArgs, p_ai_processing_consent: false }),
+  );
+  await deniedH4('Direct asset insertion cannot manufacture confirmation', () =>
+    a.from('project_assets').insert({
+      project_id: aDraft.id,
+      user_id: aUser.id,
+      asset_type: 'REFERENCE_IMAGE',
+      storage_bucket: BUCKET,
+      storage_path: aObjectPath,
+      mime_type: 'image/jpeg',
+      file_size: originalBytes.length,
+    }),
+  );
+  await deniedH4('Direct consent cannot forge a snapshot', () =>
+    a.from('project_consents').insert({
+      project_id: aDraft.id,
+      user_id: aUser.id,
+      consent_type: 'HAS_LIKENESS_PERMISSION',
+      granted: true,
+      granted_at: new Date().toISOString(),
+      wording_version: 'invented',
+    }),
+  );
+  await deniedH4('Missing object cannot be confirmed', () =>
+    a.rpc('confirm_reference_asset', {
+      p_project_id: aDraft.id,
+      p_storage_path: latePath,
+      p_original_filename: 'missing.jpg',
+    }),
+  );
+  const confirmationArgs = {
+    p_project_id: aDraft.id,
+    p_storage_path: aObjectPath,
+    p_original_filename: 'reference.jpg',
+  };
+  const confirmed = await a.rpc('confirm_reference_asset', confirmationArgs);
+  requireSuccess(confirmed.error);
+  const confirmationReplay = await a.rpc('confirm_reference_asset', confirmationArgs);
+  requireSuccess(confirmationReplay.error);
+  record(
+    'H4 submission',
+    'Confirmation replay has the same asset ID',
+    'ALLOWED',
+    confirmed.data?.id && confirmed.data.id === confirmationReplay.data?.id ? 'ALLOWED' : 'DENIED',
+  );
+  requireSuccess(
+    (await a.from('projects').update({ desired_duration_seconds: null }).eq('id', aDraft.id)).error,
+  );
+  await deniedH4('Missing required duration', () => a.rpc('submit_project', submissionArgs));
+  requireSuccess(
+    (await a.from('projects').update({ desired_duration_seconds: 15 }).eq('id', aDraft.id)).error,
+  );
+  const submission = await a.rpc('submit_project', submissionArgs);
+  requireSuccess(submission.error);
+  const submissionReplay = await a.rpc('submit_project', submissionArgs);
+  requireSuccess(submissionReplay.error);
+  record(
+    'H4 submission',
+    'Submission replay converges',
+    'ALLOWED',
+    submission.data?.projectId === aDraft.id && submissionReplay.data?.projectId === aDraft.id
+      ? 'ALLOWED'
+      : 'DENIED',
+  );
+  const submittedProject = await a.from('projects').select('status').eq('id', aDraft.id).single();
+  requireSuccess(submittedProject.error);
+  if (submittedProject.data?.status !== 'SUBMITTED') throw new Error('H3 fixture did not submit');
+  await a
+    .from('project_consents')
+    .update({ granted: false, granted_at: null })
+    .eq('project_id', aDraft.id);
+  const frozen = await a
+    .from('project_consents')
+    .select('consent_type,granted')
+    .eq('project_id', aDraft.id);
+  requireSuccess(frozen.error);
+  record(
+    'H4 submission',
+    'Required consent remains frozen',
+    'DENIED',
+    frozen.data?.filter((c) => c.consent_type !== 'PORTFOLIO_PERMISSION' && c.granted).length === 2
+      ? 'DENIED (consent preserved)'
+      : 'ALLOWED (consent lost)',
+  );
+  console.log(
+    `H3 retains submitted project ${aDraft.id} and reference ${aObjectPath} for inspection.`,
+  );
+
+  const changedBytes = Buffer.concat([jpeg, Buffer.from('H3 mutation')]);
+  const blocked = async (
+    label: string,
+    operation: () => Promise<{ error: { message: string } | null }>,
+  ) => {
+    await probe('H3 submitted', label, 'DENIED', async () => {
+      const result = await operation();
+      return result.error ? `DENIED (${result.error.message})` : 'ALLOWED';
+    });
+  };
+  await blocked('Owner overwrite', () =>
+    reference.upload(aObjectPath, changedBytes, { contentType: 'image/jpeg', upsert: true }),
+  );
+  await blocked('Owner rename', () =>
+    reference.move(aObjectPath, `${aUser.id}/${aDraft.id}/h3-moved.jpg`),
+  );
+  await blocked('Owner add', () => reference.upload(latePath, jpeg, { contentType: 'image/jpeg' }));
+  await blocked('Pre-submission signed token add', () =>
+    reference.uploadToSignedUrl(latePath, lateSlot.data!.token, jpeg, {
+      contentType: 'image/jpeg',
+    }),
+  );
+  await blocked('Pre-submission signed token overwrite', () =>
+    reference.uploadToSignedUrl(aObjectPath, replaceSlot.data!.token, changedBytes, {
+      contentType: 'image/jpeg',
+    }),
+  );
+  await blocked('Another customer overwrite', () =>
+    b.storage
+      .from(BUCKET)
+      .upload(aObjectPath, changedBytes, { contentType: 'image/jpeg', upsert: true }),
+  );
+  await blocked('Another customer read', () => b.storage.from(BUCKET).download(aObjectPath));
+  // remove may succeed with zero rows. Verify content rather than its status.
+  for (const [label, client] of [
+    ['Owner', a],
+    ['Another customer', b],
+  ] as const) {
+    await client.storage.from(BUCKET).remove([aObjectPath]);
+    const remaining = await reference.download(aObjectPath);
+    requireSuccess(remaining.error);
+    const unchanged =
+      remaining.data && Buffer.from(await remaining.data.arrayBuffer()).equals(originalBytes);
+    record(
+      'H3 submitted',
+      `${label} deletion preserves original bytes`,
+      'DENIED',
+      unchanged ? 'DENIED (original bytes remain)' : 'ALLOWED (original bytes lost)',
+    );
+  }
+  const finalListing = await reference.list(`${aUser.id}/${aDraft.id}`);
+  requireSuccess(finalListing.error);
+  record(
+    'H3 submitted',
+    'No additional or moved objects',
+    'DENIED',
+    finalListing.data?.some((object) => ['h3-late.jpg', 'h3-moved.jpg'].includes(object.name))
+      ? 'ALLOWED (unexpected object)'
+      : 'DENIED',
+  );
+
+  // Clean up the remaining draft. Submitted references intentionally cannot be
+  // removed through the customer session (nor through privileged token writes).
+  // -------------------------------------------------------------------------
   await b.from('projects').delete().eq('id', bDraft.id);
 
   // -------------------------------------------------------------------------

@@ -193,3 +193,32 @@ describe('redaction', () => {
     expect(redactSecrets('Provider responded 503')).toBe('Provider responded 503');
   });
 });
+
+describe('bounded provider operations', () => {
+  it.each(['headers', 'body'])('aborts a hanging %s operation', async (phase) => {
+    vi.useFakeTimers();
+    try {
+      let signal: AbortSignal | undefined;
+      const fetchImpl = vi.fn((_url: RequestInfo | URL, init?: RequestInit) => {
+        signal = init?.signal as AbortSignal;
+        return phase === 'headers'
+          ? new Promise<Response>(() => {})
+          : Promise.resolve({
+              ok: true,
+              json: () => new Promise(() => {}),
+            } as Response);
+      });
+      const provider = createResendProvider({
+        apiKey: 'test',
+        from: 'test@example.invalid',
+        fetchImpl,
+      });
+      const pending = provider.send(EMAIL);
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(await pending).toMatchObject({ ok: false, permanent: false });
+      expect(signal?.aborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

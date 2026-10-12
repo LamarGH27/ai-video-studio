@@ -8,10 +8,12 @@
 -- against a live project by scripts/verify-live.ts.
 --
 -- The object layout is {user_id}/{project_id}/{filename}; the policies compare
--- (storage.foldername(name))[1] against auth.uid().
+-- ownership and DRAFT state for writes; submitted references remain readable.
 -- =============================================================================
 
 begin;
+insert into public.projects(id,user_id,status,brief) values
+('99999999-0000-4000-8000-000000000011',avs_test.id('customer_a'),'DRAFT','Storage policy draft fixture.');
 
 -- Convenience: the two seeded objects.
 create or replace function avs_test.a_object() returns text language sql stable as $$
@@ -35,13 +37,13 @@ select avs_test.attempt('Storage A own', 'READ own reference image object', 'ALL
 select avs_test.attempt('Storage A own', 'WRITE a new object into own folder', 'ALLOWED',
   $$ insert into storage.objects (bucket_id, name, metadata)
      values ('reference-images',
-             'aaaaaaaa-0000-4000-8000-00000000000a/11111111-0000-4000-8000-000000000001/a2.jpg',
+             'aaaaaaaa-0000-4000-8000-00000000000a/99999999-0000-4000-8000-000000000011/a2.jpg',
              '{"size":1000,"mimetype":"image/jpeg"}') $$);
 
 select avs_test.attempt('Storage A own', 'DELETE own object', 'ALLOWED',
   $$ delete from storage.objects
      where bucket_id = 'reference-images'
-       and name = 'aaaaaaaa-0000-4000-8000-00000000000a/11111111-0000-4000-8000-000000000001/a2.jpg' $$);
+       and name = 'aaaaaaaa-0000-4000-8000-00000000000a/99999999-0000-4000-8000-000000000011/a2.jpg' $$);
 
 -- -----------------------------------------------------------------------------
 -- Customer A attacking Customer B's objects

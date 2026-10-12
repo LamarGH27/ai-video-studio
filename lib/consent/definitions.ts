@@ -12,8 +12,9 @@ import type { ConsentType } from '@/types/database';
  * 2026-09-15 bumped for the rename to Scenelio. The obligation is identical and
  * a rename is not a change of substance, but only the VERSION is stored — the
  * text lives here — so leaving the version alone would have made an existing
- * record silently resolve to wording its signer never read. Bumping costs
- * nothing: nothing gates on the value and no re-consent is triggered by it.
+ * record silently resolve to wording its signer never read. Existing submitted
+ * records keep their version. New submission RPCs pin the current version;
+ * update their database validation and recorded version together with this value.
  *
  * This service is for consenting adults only. There is deliberately no
  * workflow, field or code path here for media of a minor.

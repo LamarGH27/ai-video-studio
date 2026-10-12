@@ -4,12 +4,11 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
 import { getSessionUser } from '@/lib/auth/session';
+import { findConfirmedUpload } from '@/lib/data/upload-confirmation';
 import { CUSTOM_CONCEPT_SLUG } from '@/lib/catalog/experiences';
-import { CONSENT_DEFINITIONS, CONSENT_WORDING_VERSION } from '@/lib/consent/definitions';
 import {
   MAX_REFERENCE_IMAGE_BYTES,
   MAX_REFERENCE_IMAGES_PER_PROJECT,
-  MIN_REFERENCE_IMAGES_PER_PROJECT,
   REFERENCE_IMAGES_BUCKET,
   isAcceptedImageMimeType,
 } from '@/lib/storage/config';
@@ -30,7 +29,7 @@ import {
   type UploadSlotInput,
   uploadSlotSchema,
 } from '@/lib/validation/project';
-import type { ProjectRow } from '@/types/database';
+import type { ProjectAssetRow, ProjectRow } from '@/types/database';
 import { fail, ok, type ActionResult } from './action-result';
 
 /**
@@ -42,9 +41,8 @@ import { fail, ok, type ActionResult } from './action-result';
  *      the client, and none is present in any of the input schemas.
  *   2. Raw input is re-parsed with the Zod schema the browser also used. The
  *      browser having checked something is not evidence that it is true.
- *   3. Ownership and project state are re-read from the database before every
- *      write, and the write itself still passes through RLS. Two independent
- *      checks, not one.
+ *   3. RLS protects ordinary writes. Confirmation and submission RPCs verify
+ *      ownership and project state themselves, under a project-row lock.
  *   4. Storage paths are generated here, never derived from a filename.
  */
 
@@ -242,9 +240,9 @@ export async function requestUploadSlotAction(
  * Step 3b — record an upload that has landed.
  *
  * The size and content type written to project_assets come from Storage's own
- * metadata, not from the browser's claims at slot-request time. If what actually
- * arrived breaks the upload policy, the object is deleted again rather than
- * being left orphaned in the bucket.
+ * metadata, not from the browser's claims at slot-request time. Confirmation
+ * never deletes objects: a failed write may already have committed. Unrecorded
+ * objects are left for conservative orphan reconciliation.
  */
 export async function confirmUploadAction(input: ConfirmUploadInput): Promise<
   ActionResult<{
@@ -267,9 +265,6 @@ export async function confirmUploadAction(input: ConfirmUploadInput): Promise<
 
   const { projectId, storagePath, originalFilename } = parsed.data;
 
-  const draft = await loadOwnDraft(user.id, projectId);
-  if (!draft.ok) return fail(draft.code, draft.message);
-
   // The client echoes back the path we issued. Confirm it is still one this user
   // and project could ever own before going near it.
   if (!isPathOwnedBy(storagePath, user.id) || !storagePath.startsWith(`${user.id}/${projectId}/`)) {
@@ -277,6 +272,33 @@ export async function confirmUploadAction(input: ConfirmUploadInput): Promise<
   }
 
   const supabase = await createClient();
+
+  const lookup = () =>
+    findConfirmedUpload(supabase, {
+      bucket: REFERENCE_IMAGES_BUCKET,
+      path: storagePath,
+      projectId,
+      userId: user.id,
+      assetType: 'REFERENCE_IMAGE',
+    });
+  const resultFor = (asset: ProjectAssetRow) =>
+    ok({
+      assetId: asset.id,
+      storagePath: asset.storage_path,
+      fileSize: asset.file_size,
+      mimeType: asset.mime_type,
+      originalFilename: asset.original_filename ?? sanitiseOriginalFilename(originalFilename),
+    });
+
+  // A committed upload remains a successful confirmation after submission.
+  const existing = await lookup();
+  if (existing.kind === 'found') return resultFor(existing.asset);
+  if (existing.kind === 'error') return fail('ERROR', 'We could not check that upload. Try again.');
+  if (existing.kind === 'conflict')
+    return fail('CONFLICT', 'That upload is already recorded elsewhere.');
+
+  const draft = await loadOwnDraft(user.id, projectId);
+  if (!draft.ok) return fail(draft.code, draft.message);
 
   const { data: info, error: infoError } = await supabase.storage
     .from(REFERENCE_IMAGES_BUCKET)
@@ -289,49 +311,36 @@ export async function confirmUploadAction(input: ConfirmUploadInput): Promise<
   const actualSize = info.size ?? 0;
   const actualMimeType = info.contentType ?? '';
 
-  const removeObject = async () => {
-    await supabase.storage.from(REFERENCE_IMAGES_BUCKET).remove([storagePath]);
-  };
-
   if (!isAcceptedImageMimeType(actualMimeType)) {
-    await removeObject();
     return fail('VALIDATION', 'Reference images must be JPEG, PNG or WebP.');
   }
 
   if (actualSize <= 0 || actualSize > MAX_REFERENCE_IMAGE_BYTES) {
-    await removeObject();
     const limitMb = Math.round(MAX_REFERENCE_IMAGE_BYTES / (1024 * 1024));
     return fail('VALIDATION', `Each image must be ${limitMb} MB or smaller.`);
   }
 
-  const { data, error } = await supabase
-    .from('project_assets')
-    .insert({
-      project_id: projectId,
-      user_id: user.id,
-      asset_type: 'REFERENCE_IMAGE',
-      storage_bucket: REFERENCE_IMAGES_BUCKET,
-      storage_path: storagePath,
-      mime_type: actualMimeType,
-      // Kept for support only. Sanitised, never used to build a path.
-      original_filename: sanitiseOriginalFilename(originalFilename),
-      file_size: actualSize,
-    })
-    .select('id, original_filename')
-    .maybeSingle();
+  let recorded: ProjectAssetRow | null = null;
+  try {
+    const { data, error } = await supabase.rpc('confirm_reference_asset', {
+      p_project_id: projectId,
+      p_storage_path: storagePath,
+      p_original_filename: sanitiseOriginalFilename(originalFilename),
+    });
+    if (!error) recorded = data;
+  } catch {
+    // Transport failures cannot tell us whether the transaction committed.
+  }
 
-  if (error || !data) {
-    await removeObject();
+  if (!recorded) {
+    const recovered = await lookup();
+    if (recovered.kind === 'found') return resultFor(recovered.asset);
+    if (recovered.kind === 'conflict')
+      return fail('CONFLICT', 'That upload is already recorded elsewhere.');
     return fail('ERROR', 'We could not record that upload. Try again.');
   }
 
-  return ok({
-    assetId: data.id,
-    storagePath,
-    fileSize: actualSize,
-    mimeType: actualMimeType,
-    originalFilename: data.original_filename ?? sanitiseOriginalFilename(originalFilename),
-  });
+  return resultFor(recorded);
 }
 
 /** Step 3c — remove a reference image the customer has changed their mind about. */
@@ -385,9 +394,9 @@ export async function removeAssetAction(input: RemoveAssetInput): Promise<Action
 /**
  * Step 4 — record consent and submit the project.
  *
- * Consent is written as its own rows, with the wording version in force at the
- * time, before the status changes. If the consent write fails the project stays
- * a DRAFT, so there is never a submitted project without a consent record.
+ * The database RPC locks the project, records versioned consent and validates
+ * its brief and confirmed references in one transaction. A retry after a lost
+ * response returns the same submitted project without rewriting consent.
  */
 export async function submitProjectAction(
   input: SubmitProjectInput,
@@ -409,79 +418,31 @@ export async function submitProjectAction(
   const { projectId, hasLikenessPermission, aiProcessingConsent, portfolioPermission } =
     parsed.data;
 
-  const draft = await loadOwnDraft(user.id, projectId);
-  if (!draft.ok) return fail(draft.code, draft.message);
-
-  const project = draft.project;
-
-  if (!project.brief || !project.orientation) {
-    return fail('VALIDATION', 'Your brief is incomplete. Go back and finish it.');
-  }
-
   const supabase = await createClient();
-
-  const { count, error: countError } = await supabase
-    .from('project_assets')
-    .select('id', { count: 'exact', head: true })
-    .eq('project_id', projectId)
-    .eq('asset_type', 'REFERENCE_IMAGE');
-
-  if (countError) {
-    return fail('ERROR', 'We could not check your reference images. Try again.');
+  let result;
+  try {
+    result = await supabase.rpc('submit_project', {
+      p_project_id: projectId,
+      p_has_likeness_permission: hasLikenessPermission,
+      p_ai_processing_consent: aiProcessingConsent,
+      p_portfolio_permission: portfolioPermission,
+    });
+  } catch {
+    return fail('ERROR', 'We could not confirm submission. Try again.');
   }
-
-  if ((count ?? 0) < MIN_REFERENCE_IMAGES_PER_PROJECT) {
-    return fail(
-      'VALIDATION',
-      `Add at least ${MIN_REFERENCE_IMAGES_PER_PROJECT} reference image before submitting.`,
-    );
+  if (result.error || !result.data) {
+    if (result.error?.code === '23514') {
+      return fail(
+        'VALIDATION',
+        'Check your brief, required consent and confirmed reference images.',
+      );
+    }
+    if (result.error?.code === '42501') {
+      return fail('CONFLICT', 'This project is unavailable or has already been submitted.');
+    }
+    return fail('ERROR', 'We could not confirm submission. Try again.');
   }
-
-  const granted: Record<string, boolean> = {
-    has_likeness_permission: hasLikenessPermission,
-    ai_processing_consent: aiProcessingConsent,
-    portfolio_permission: portfolioPermission,
-  };
-
-  const now = new Date().toISOString();
-
-  const consentRows = CONSENT_DEFINITIONS.map((definition) => {
-    const isGranted = granted[definition.field] === true;
-    return {
-      project_id: projectId,
-      user_id: user.id,
-      consent_type: definition.type,
-      granted: isGranted,
-      wording_version: CONSENT_WORDING_VERSION,
-      granted_at: isGranted ? now : null,
-    };
-  });
-
-  const { error: consentError } = await supabase
-    .from('project_consents')
-    .upsert(consentRows, { onConflict: 'project_id,consent_type' });
-
-  if (consentError) {
-    return fail('ERROR', 'We could not record your consent. Nothing has been submitted.');
-  }
-
-  // The status change is what makes the project visible to production staff, and
-  // it is also what makes it read-only to the customer under RLS.
-  const { data, error } = await supabase
-    .from('projects')
-    .update({ status: 'SUBMITTED', submitted_at: now })
-    .eq('id', projectId)
-    .eq('user_id', user.id)
-    .eq('status', 'DRAFT')
-    .select('id, public_reference')
-    .maybeSingle();
-
-  if (error || !data) {
-    return fail('ERROR', 'We could not submit your project. Try again.');
-  }
-
   revalidatePath('/dashboard');
   revalidatePath(`/dashboard/projects/${projectId}`);
-
-  return ok({ projectId: data.id, publicReference: data.public_reference });
+  return ok(result.data);
 }

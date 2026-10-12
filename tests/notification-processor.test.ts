@@ -25,6 +25,7 @@ function row(overrides: Partial<NotificationOutboxRow> = {}): NotificationOutbox
     project_id: PROJECT_ID,
     payload: { reference: 'AVS-000123', previewVersion: 1 },
     status: 'PROCESSING',
+    claim_token: 'bbbbbbbb-bbbb-4ccc-8ddd-eeeeeeeeeeee',
     attempt_count: 1,
     next_attempt_at: new Date(Date.now() + 300_000).toISOString(),
     claimed_at: new Date().toISOString(),
@@ -44,12 +45,12 @@ function fakeStore(rows: NotificationOutboxRow[]) {
 
   const store: NotificationStore = {
     async claim() {
-      return rows;
+      return rows.splice(0, 1);
     },
-    async markSent(id, providerMessageId) {
+    async markSent(id, _claimToken, providerMessageId) {
       sent.push({ id, providerMessageId });
     },
-    async markFailed(id, error, permanent) {
+    async markFailed(id, _claimToken, error, permanent) {
       failed.push({ id, error, permanent });
     },
   };
@@ -238,5 +239,75 @@ describe('the message it hands the provider', () => {
       claimed: 0,
       provider: 'fake',
     });
+  });
+});
+
+describe('worker lease and time bounds', () => {
+  it('passes the claimed identity to acknowledgement', async () => {
+    const { store } = fakeStore([row()]);
+    const mark = vi.spyOn(store, 'markSent');
+    await processNotifications({ store, provider: fakeProvider().provider });
+    expect(mark).toHaveBeenCalledWith(row().id, row().claim_token, 'msg_1');
+  });
+
+  it('continues after an ambiguous acknowledgement without counting it or writing a failure', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { store, failed } = fakeStore([row(), row({ id: 'second' })]);
+    vi.spyOn(store, 'markSent').mockRejectedValueOnce(new Error('Connection lost'));
+    const result = await processNotifications({ store, provider: fakeProvider().provider });
+    expect(result).toMatchObject({ claimed: 2, sent: 1, acknowledgementErrors: 1, failed: 0 });
+    expect(failed).toEqual([]);
+  });
+
+  it('a throwing provider schedules a transient failure and preserves the event key on retry', async () => {
+    const { store, failed } = fakeStore([row()]);
+    const send = vi.fn().mockRejectedValue(new Error('Connection lost'));
+    expect(await processNotifications({ store, provider: { name: 'test', send } })).toMatchObject({
+      failed: 1,
+    });
+    expect(failed[0]?.permanent).toBe(false);
+    expect(send.mock.calls[0]?.[0].idempotencyKey).toBe(row().dedupe_key);
+    const retry = fakeStore([row({ attempt_count: 2, claim_token: 'new-claim' })]);
+    send.mockResolvedValue({ ok: true, id: 'provider-id' });
+    expect(
+      await processNotifications({ store: retry.store, provider: { name: 'test', send } }),
+    ).toMatchObject({ sent: 1 });
+    expect(send.mock.calls[1]?.[0].idempotencyKey).toBe(row().dedupe_key);
+  });
+
+  it('times out stuck providers, leaves unclaimed work queued, and exits within the worker budget', async () => {
+    vi.useFakeTimers();
+    try {
+      const start = Date.now();
+      const { store } = fakeStore(Array.from({ length: 20 }, () => row()));
+      const claim = vi.spyOn(store, 'claim');
+      const provider: EmailProvider = { name: 'hanging', send: () => new Promise(() => {}) };
+      const pending = processNotifications({ store, provider });
+      await vi.advanceTimersByTimeAsync(50_000);
+      expect(await pending).toMatchObject({
+        claimed: 4,
+        failed: 4,
+        budgetExhausted: true,
+        acknowledgementErrors: 0,
+      });
+      expect(claim).toHaveBeenCalledTimes(4);
+      expect(Date.now() - start).toBeLessThanOrEqual(50_000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('bounds a hung acknowledgement and does not report it as sent', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const { store } = fakeStore([row()]);
+      store.markSent = () => new Promise(() => {});
+      const pending = processNotifications({ limit: 1, store, provider: fakeProvider().provider });
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(await pending).toMatchObject({ sent: 0, acknowledgementErrors: 1 });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

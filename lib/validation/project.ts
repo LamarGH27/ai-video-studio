@@ -9,10 +9,9 @@ import {
 /**
  * Server-side schemas for the create-video flow.
  *
- * These are the authority. The wizard reuses them client-side through
- * React Hook Form for immediate feedback, but every server action re-parses its
- * raw input with the same schema before touching the database. Nothing is
- * trusted because the browser already checked it.
+ * These provide immediate feedback and Server Action validation. Submission
+ * requirements are also enforced authoritatively by the database RPC/triggers;
+ * direct API callers cannot bypass them.
  *
  * Note what is absent: there is no `user_id` anywhere in these schemas. Ownership
  * is read from the session in the server action, never accepted from the client.

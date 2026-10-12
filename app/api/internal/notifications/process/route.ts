@@ -1,5 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import { NextResponse } from 'next/server';
+import { redactSecrets } from '@/lib/notifications/provider';
 import { cronSecret } from '@/lib/notifications/config';
 import { processNotifications } from '@/lib/notifications/processor';
 
@@ -59,12 +60,17 @@ async function run(request: Request) {
 
   try {
     const result = await processNotifications();
-    return NextResponse.json(result, { headers: { 'cache-control': 'no-store' } });
+    return NextResponse.json(result, {
+      status: result.acknowledgementErrors ? 500 : 200,
+      headers: { 'cache-control': 'no-store' },
+    });
   } catch (error) {
     // The message is for our own logs and for the operator holding the secret.
     // It never reaches a customer, and it never contains a credential: the
     // configuration errors thrown upstream name the variable, not its value.
-    const message = error instanceof Error ? error.message : 'Notification processing failed';
+    const message = redactSecrets(
+      error instanceof Error ? error.message : 'Notification processing failed',
+    );
     console.error('[notifications] processing failed:', message);
     return NextResponse.json(
       { error: message },

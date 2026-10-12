@@ -5,42 +5,26 @@ import { siteUrl } from '@/lib/env';
 import { adminNotificationRecipients } from '@/lib/notifications/config';
 import { isNotificationEventType, EVENT_RECIPIENT } from '@/lib/notifications/events';
 import { resolveEmailProvider } from '@/lib/notifications/providers';
-import type { EmailProvider } from '@/lib/notifications/provider';
+import { redactSecrets, type EmailProvider } from '@/lib/notifications/provider';
+import {
+  withDeadline,
+  PROVIDER_TIMEOUT_MS,
+  DATABASE_TIMEOUT_MS,
+  WORKER_BUDGET_MS,
+} from '@/lib/notifications/deadline';
 import { renderNotificationEmail } from '@/lib/notifications/templates';
 import type { NotificationOutboxRow } from '@/types/database';
 
-/**
- * The queue runner.
- *
- * Shape, and why:
- *
- *   1. claim_notifications() takes a bounded batch in ONE short database
- *      transaction, using FOR UPDATE SKIP LOCKED. Two runners overlapping —
- *      which they will, because a cron tick can land while a manual run is in
- *      flight — take disjoint rows rather than the same row twice.
- *
- *   2. That transaction then COMMITS, and only afterwards does anything talk to
- *      the email provider. Holding a transaction open across somebody else's
- *      HTTP call means their slowest response is how long we hold locks, and a
- *      provider timeout becomes a database incident. The claim instead sets a
- *      lease: the row is invisible to other runners until it expires, and a
- *      runner that dies mid-send releases its rows by doing nothing at all.
- *
- *   3. Each result is reported back individually, so one bad row cannot cost
- *      the batch. The attempt count was already incremented by the claim, so a
- *      row that kills the process still counts as attempted and cannot spin.
- *
- * The recipient is resolved HERE, not in the database. A customer row carries
- * the address captured from auth.users when the event happened; an admin row
- * carries none and is addressed from ADMIN_NOTIFICATION_EMAIL at this moment.
- */
-
+/** Claims commit before provider calls. Claim one row at a time so queued work
+ * cannot consume its lease while an earlier delivery is still running. */
 export interface ProcessResult {
   claimed: number;
   sent: number;
   failed: number;
   skipped: number;
   provider: string;
+  acknowledgementErrors: number;
+  budgetExhausted: boolean;
 }
 
 /** The three database calls the worker makes. Narrow on purpose: it is also
@@ -48,8 +32,8 @@ export interface ProcessResult {
  *  the database surface than the worker itself is allowed to touch. */
 export interface NotificationStore {
   claim(limit: number, leaseSeconds: number): Promise<NotificationOutboxRow[]>;
-  markSent(id: string, providerMessageId: string | null): Promise<void>;
-  markFailed(id: string, error: string, permanent: boolean): Promise<void>;
+  markSent(id: string, claimToken: string, providerMessageId: string | null): Promise<void>;
+  markFailed(id: string, claimToken: string, error: string, permanent: boolean): Promise<void>;
 }
 
 export interface ProcessOptions {
@@ -69,25 +53,43 @@ function supabaseStore(): NotificationStore {
 
   return {
     async claim(limit, leaseSeconds) {
-      const { data, error } = await supabase.rpc('claim_notifications', {
-        p_limit: limit,
-        p_lease_seconds: leaseSeconds,
-      });
+      const { data, error } = await withDeadline(DATABASE_TIMEOUT_MS, (signal) =>
+        supabase
+          .rpc('claim_notifications', {
+            p_limit: limit,
+            p_lease_seconds: leaseSeconds,
+          })
+          .abortSignal(signal),
+      );
       if (error) throw new Error(`Could not claim notifications: ${error.message}`);
       return (data ?? []) as NotificationOutboxRow[];
     },
-    async markSent(id, providerMessageId) {
-      await supabase.rpc('mark_notification_sent', {
-        p_id: id,
-        p_provider_message_id: providerMessageId,
-      });
+    async markSent(id, claimToken, providerMessageId) {
+      const { data, error } = await withDeadline(DATABASE_TIMEOUT_MS, (signal) =>
+        supabase
+          .rpc('mark_notification_sent', {
+            p_id: id,
+            p_claim_token: claimToken,
+            p_provider_message_id: providerMessageId,
+          })
+          .abortSignal(signal),
+      );
+      if (error || data !== true)
+        throw new Error('Sent acknowledgement failed or lease is no longer owned');
     },
-    async markFailed(id, error, permanent) {
-      await supabase.rpc('mark_notification_failed', {
-        p_id: id,
-        p_error: error,
-        p_permanent: permanent,
-      });
+    async markFailed(id, claimToken, errorMessage, permanent) {
+      const { data, error } = await withDeadline(DATABASE_TIMEOUT_MS, (signal) =>
+        supabase
+          .rpc('mark_notification_failed', {
+            p_id: id,
+            p_claim_token: claimToken,
+            p_error: errorMessage,
+            p_permanent: permanent,
+          })
+          .abortSignal(signal),
+      );
+      if (error || data !== true)
+        throw new Error('Failure acknowledgement failed or lease is no longer owned');
     },
   };
 }
@@ -96,30 +98,71 @@ export async function processNotifications(options: ProcessOptions = {}): Promis
   const store = options.store ?? supabaseStore();
   const provider = options.provider ?? resolveEmailProvider();
 
-  const rows = await store.claim(
-    options.limit ?? DEFAULT_BATCH,
-    options.leaseSeconds ?? DEFAULT_LEASE_SECONDS,
-  );
+  const deadline = Date.now() + WORKER_BUDGET_MS;
+  const limit = Math.min(100, Math.max(1, options.limit ?? DEFAULT_BATCH));
   const result: ProcessResult = {
-    claimed: rows.length,
+    claimed: 0,
     sent: 0,
     failed: 0,
     skipped: 0,
     provider: provider.name,
+    acknowledgementErrors: 0,
+    budgetExhausted: false,
   };
-
-  for (const row of rows) {
-    const outcome = await deliver(row, provider);
-
-    if (outcome.kind === 'sent') {
-      await store.markSent(row.id, outcome.id);
-      result.sent += 1;
-      continue;
+  while (result.claimed < limit) {
+    // Reserve time for the claim, all recipients, and the acknowledgement.
+    if (deadline - Date.now() < PROVIDER_TIMEOUT_MS + 2 * DATABASE_TIMEOUT_MS) {
+      result.budgetExhausted = true;
+      break;
     }
-
-    await store.markFailed(row.id, outcome.message, outcome.permanent);
-    if (outcome.permanent) result.skipped += 1;
-    else result.failed += 1;
+    const rows = await withDeadline(DATABASE_TIMEOUT_MS, () =>
+      store.claim(1, options.leaseSeconds ?? DEFAULT_LEASE_SECONDS),
+    );
+    if (!rows.length) break;
+    const row = rows[0]!;
+    result.claimed++;
+    try {
+      if (!row.claim_token) throw new Error('Claim has no ownership token');
+      let outcome: Outcome;
+      try {
+        outcome = await withDeadline(PROVIDER_TIMEOUT_MS, (signal) =>
+          deliver(row, provider, signal),
+        );
+      } catch {
+        // Delivery is ambiguous. Preserve the event key and schedule a retry.
+        outcome = {
+          kind: 'failed',
+          permanent: false,
+          message: 'Provider operation failed or timed out; delivery outcome unknown',
+        };
+      }
+      if (outcome.kind === 'sent') {
+        await withDeadline(DATABASE_TIMEOUT_MS, () =>
+          store.markSent(row.id, row.claim_token!, outcome.id),
+        );
+        result.sent++;
+      } else {
+        await withDeadline(DATABASE_TIMEOUT_MS, () =>
+          store.markFailed(
+            row.id,
+            row.claim_token!,
+            redactSecrets(outcome.message),
+            outcome.permanent,
+          ),
+        );
+        if (outcome.permanent) result.skipped++;
+        else result.failed++;
+      }
+    } catch (error) {
+      // Never compensate an ambiguous sent acknowledgement with a failure write.
+      // The DB may have committed; otherwise lease recovery owns the next step.
+      result.acknowledgementErrors++;
+      console.error(
+        '[notifications] acknowledgement failed',
+        row.id,
+        redactSecrets(error instanceof Error ? error.message : 'Unknown acknowledgement error'),
+      );
+    }
   }
 
   return result;
@@ -128,7 +171,11 @@ export async function processNotifications(options: ProcessOptions = {}): Promis
 type Outcome =
   { kind: 'sent'; id: string | null } | { kind: 'failed'; permanent: boolean; message: string };
 
-async function deliver(row: NotificationOutboxRow, provider: EmailProvider): Promise<Outcome> {
+async function deliver(
+  row: NotificationOutboxRow,
+  provider: EmailProvider,
+  signal: AbortSignal,
+): Promise<Outcome> {
   if (!isNotificationEventType(row.event_type)) {
     // A row written by a newer migration than this deployment understands.
     // Permanent from this build's point of view; a later deploy can retry it.
@@ -173,13 +220,17 @@ async function deliver(row: NotificationOutboxRow, provider: EmailProvider): Pro
   let anySent = false;
 
   for (const [index, to] of recipients.entries()) {
-    const sendResult = await provider.send({
-      to,
-      subject: email.subject,
-      html: email.html,
-      text: email.text,
-      idempotencyKey: index === 0 ? row.dedupe_key : `${row.dedupe_key}#${index}`,
-    });
+    signal.throwIfAborted();
+    const sendResult = await provider.send(
+      {
+        to,
+        subject: email.subject,
+        html: email.html,
+        text: email.text,
+        idempotencyKey: index === 0 ? row.dedupe_key : `${row.dedupe_key}#${index}`,
+      },
+      { signal },
+    );
 
     if (sendResult.ok) {
       anySent = true;
@@ -193,8 +244,8 @@ async function deliver(row: NotificationOutboxRow, provider: EmailProvider): Pro
     }
   }
 
-  // A partial success is still a failure to report: retrying is safe, because
-  // the provider's idempotency key suppresses the deliveries that did succeed.
+  // Preserve event keys on partial retries. Provider deduplication has a finite
+  // retention window; this is not an exactly-once inbox delivery guarantee.
   if (lastFailure) return lastFailure;
   return anySent
     ? { kind: 'sent', id: firstId }

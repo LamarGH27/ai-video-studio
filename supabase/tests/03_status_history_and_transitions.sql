@@ -15,12 +15,7 @@ begin;
 select avs_test.become('customer_a');
 
 select avs_test.attempt('Transition', 'Customer submits own draft (DRAFT→SUBMITTED)', 'ALLOWED',
-  $$ update public.projects
-     set status = 'SUBMITTED',
-         submitted_at = now(),
-         brief = 'A complete brief that satisfies the submitted-completeness constraint.',
-         orientation = 'VERTICAL_9_16'
-     where id = avs_test.id('a_draft') $$);
+  $$ select public.submit_project(avs_test.id('a_draft'),true,true,false) $$);
 
 -- The history row must exist even though `authenticated` cannot insert into that
 -- table itself — that is the whole point of the SECURITY DEFINER trigger.
@@ -106,16 +101,12 @@ select avs_test.become('admin');
 select avs_test.attempt('Transition', 'Admin FINALISING→COMPLETED with no final video', 'DENIED',
   $$ update public.projects set status = 'COMPLETED' where id = avs_test.id('a_submitted') $$);
 
+insert into storage.objects(bucket_id,name,metadata) values('project-deliveries','aaaaaaaa-0000-4000-8000-00000000000a/11111111-0000-4000-8000-000000000001/final-v1.mp4',jsonb_build_object('size',8000000,'mimetype','video/mp4'));
 select avs_test.attempt('Transition', 'Admin uploads the final video', 'ALLOWED',
-  $$ insert into public.project_assets
-       (project_id, user_id, asset_type, storage_bucket, storage_path, mime_type, file_size)
-     values (avs_test.id('a_submitted'), avs_test.id('customer_a'), 'FINAL_VIDEO',
-             'project-deliveries',
-             'aaaaaaaa-0000-4000-8000-00000000000a/11111111-0000-4000-8000-000000000001/final-v1.mp4',
-             'video/mp4', 8000000) $$);
+  $$ select public.record_delivery_asset(avs_test.id('a_submitted'),'FINAL_VIDEO','aaaaaaaa-0000-4000-8000-00000000000a/11111111-0000-4000-8000-000000000001/final-v1.mp4','video/mp4','final.mp4',8000000) $$);
 
-select avs_test.attempt('Transition', 'Admin FINALISING→COMPLETED once a final exists', 'ALLOWED',
-  $$ update public.projects set status = 'COMPLETED' where id = avs_test.id('a_submitted') $$);
+select avs_test.attempt('Transition', 'Authoritative release completes the project', 'ALLOWED',
+  $$ select public.release_final_video(avs_test.id('a_submitted'),(select id from public.project_assets where project_id=avs_test.id('a_submitted') and asset_type='FINAL_VIDEO' order by version desc limit 1)) $$);
 
 select avs_test.attempt('Transition', 'Admin reopens a COMPLETED project (final status)', 'DENIED',
   $$ update public.projects set status = 'IN_PRODUCTION' where id = avs_test.id('a_submitted') $$);
@@ -126,10 +117,9 @@ select avs_test.attempt('Transition', 'Admin reopens a COMPLETED project (final 
 do $$
 declare
   path     text;
-  -- a_submitted is seeded directly as SUBMITTED, so its creation row is
-  -- NULL>SUBMITTED. The DRAFT>SUBMITTED transition is asserted separately above,
-  -- on a_draft, which is the project a customer actually submits.
-  expected text := 'NULL>SUBMITTED, SUBMITTED>ASSETS_REVIEW, '
+  -- Fixtures now upload reference objects while DRAFT, then submit. Include
+  -- both transitions in the expected audit trail.
+  expected text := 'NULL>DRAFT, DRAFT>SUBMITTED, SUBMITTED>ASSETS_REVIEW, '
                 || 'ASSETS_REVIEW>IN_PRODUCTION, IN_PRODUCTION>PREVIEW_READY, '
                 || 'PREVIEW_READY>FINALISING, FINALISING>COMPLETED';
   ok boolean;
